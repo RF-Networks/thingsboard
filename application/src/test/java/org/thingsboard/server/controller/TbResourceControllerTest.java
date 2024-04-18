@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2023 The Thingsboard Authors
+ * Copyright © 2016-2024 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -687,7 +687,7 @@ public class TbResourceControllerTest extends AbstractControllerTest {
         List<TbResource> resources = loadLwm2mResources();
 
         List<LwM2mObject> objects =
-                doGetTyped("/api/resource/lwm2m?sortProperty=id&sortOrder=ASC&objectIds=3_1.0,5_1.0,19_1.1", new TypeReference<>() {});
+                doGetTyped("/api/resource/lwm2m?sortProperty=id&sortOrder=ASC&objectIds=3_1.2,5_1.2,19_1.1", new TypeReference<>() {});
         Assert.assertNotNull(objects);
         Assert.assertEquals(3, objects.size());
 

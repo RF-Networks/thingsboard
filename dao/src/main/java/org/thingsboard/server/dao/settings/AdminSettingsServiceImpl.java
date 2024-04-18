@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2023 The Thingsboard Authors
+ * Copyright © 2016-2024 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,14 +39,14 @@ public class AdminSettingsServiceImpl implements AdminSettingsService {
     @Override
     public AdminSettings findAdminSettingsById(TenantId tenantId, AdminSettingsId adminSettingsId) {
         log.trace("Executing findAdminSettingsById [{}]", adminSettingsId);
-        Validator.validateId(adminSettingsId, "Incorrect adminSettingsId " + adminSettingsId);
+        Validator.validateId(adminSettingsId, id -> "Incorrect adminSettingsId " + id);
         return  adminSettingsDao.findById(tenantId, adminSettingsId.getId());
     }
 
     @Override
     public AdminSettings findAdminSettingsByKey(TenantId tenantId, String key) {
         log.trace("Executing findAdminSettingsByKey [{}]", key);
-        Validator.validateString(key, "Incorrect key " + key);
+        Validator.validateString(key, k -> "Incorrect key " + k);
         return findAdminSettingsByTenantIdAndKey(TenantId.SYS_TENANT_ID, key);
     }
 
@@ -82,7 +82,7 @@ public class AdminSettingsServiceImpl implements AdminSettingsService {
     @Override
     public boolean deleteAdminSettingsByTenantIdAndKey(TenantId tenantId, String key) {
         log.trace("Executing deleteAdminSettings, tenantId [{}], key [{}]", tenantId, key);
-        Validator.validateString(key, "Incorrect key " + key);
+        Validator.validateString(key, k -> "Incorrect key " + k);
         return adminSettingsDao.removeByTenantIdAndKey(tenantId.getId(), key);
     }
 

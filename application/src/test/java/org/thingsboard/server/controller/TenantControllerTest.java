@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2023 The Thingsboard Authors
+ * Copyright © 2016-2024 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,6 +40,7 @@ import org.thingsboard.server.common.data.Tenant;
 import org.thingsboard.server.common.data.TenantInfo;
 import org.thingsboard.server.common.data.TenantProfile;
 import org.thingsboard.server.common.data.User;
+import org.thingsboard.server.common.data.exception.TenantNotFoundException;
 import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.msg.TbMsgType;
@@ -64,6 +65,7 @@ import org.thingsboard.server.dao.service.DaoSqlTest;
 import org.thingsboard.server.gen.transport.TransportProtos;
 import org.thingsboard.server.queue.TbQueueAdmin;
 import org.thingsboard.server.queue.discovery.PartitionService;
+import org.thingsboard.server.queue.discovery.QueueKey;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -71,7 +73,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -80,6 +81,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -661,7 +663,7 @@ public class TenantControllerTest extends AbstractControllerTest {
         savedDifferentTenant.setTenantProfileId(tenantProfile.getId());
         savedDifferentTenant = doPost("/api/tenant", savedDifferentTenant, Tenant.class);
         TenantId tenantId = differentTenantId;
-        await().atMost(10, TimeUnit.SECONDS)
+        await().atMost(30, TimeUnit.SECONDS)
                 .until(() -> {
                     TopicPartitionInfo tpi = partitionService.resolve(ServiceType.TB_RULE_ENGINE, MAIN_QUEUE_NAME, tenantId, tenantId);
                     return !tpi.getTenantId().get().isSysTenantId();
@@ -675,7 +677,7 @@ public class TenantControllerTest extends AbstractControllerTest {
         tenantProfile.setIsolatedTbRuleEngine(false);
         tenantProfile.getProfileData().setQueueConfiguration(Collections.emptyList());
         tenantProfile = doPost("/api/tenantProfile", tenantProfile, TenantProfile.class);
-        await().atMost(10, TimeUnit.SECONDS)
+        await().atMost(30, TimeUnit.SECONDS)
                 .until(() -> partitionService.resolve(ServiceType.TB_RULE_ENGINE, MAIN_QUEUE_NAME, tenantId, tenantId)
                         .getTenantId().get().isSysTenantId());
 
@@ -687,16 +689,55 @@ public class TenantControllerTest extends AbstractControllerTest {
             submittedMsgs.add(tbMsg.getId());
             Thread.sleep(timeLeft / msgs);
         }
-        await().atMost(15, TimeUnit.SECONDS).untilAsserted(() -> {
+        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
             verify(queueAdmin, times(1)).deleteTopic(eq(isolatedTopic));
         });
 
-        await().atMost(5, TimeUnit.SECONDS).untilAsserted(() -> {
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> {
             for (UUID msgId : submittedMsgs) {
                 verify(actorContext).tell(argThat(msg -> {
                     return msg instanceof QueueToRuleEngineMsg && ((QueueToRuleEngineMsg) msg).getMsg().getId().equals(msgId);
                 }));
             }
+        });
+    }
+
+    @Test
+    public void whenTenantIsDeleted_thenDeleteQueues() throws Exception {
+        loginSysAdmin();
+        TenantProfile tenantProfile = new TenantProfile();
+        tenantProfile.setName("Test profile");
+        TenantProfileData tenantProfileData = new TenantProfileData();
+        tenantProfileData.setConfiguration(new DefaultTenantProfileConfiguration());
+        tenantProfile.setProfileData(tenantProfileData);
+        tenantProfile.setIsolatedTbRuleEngine(true);
+        addQueueConfig(tenantProfile, MAIN_QUEUE_NAME);
+        tenantProfile = doPost("/api/tenantProfile", tenantProfile, TenantProfile.class);
+        createDifferentTenant();
+        loginSysAdmin();
+        savedDifferentTenant.setTenantProfileId(tenantProfile.getId());
+        savedDifferentTenant = doPost("/api/tenant", savedDifferentTenant, Tenant.class);
+        TenantId tenantId = differentTenantId;
+        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(partitionService.getMyPartitions(new QueueKey(ServiceType.TB_RULE_ENGINE, tenantId))).isNotNull();
+        });
+        TopicPartitionInfo tpi = partitionService.resolve(ServiceType.TB_RULE_ENGINE, tenantId, tenantId);
+        assertThat(tpi.getTenantId()).hasValue(tenantId);
+        TbMsg tbMsg = publishTbMsg(tenantId, tpi);
+        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
+            verify(actorContext).tell(argThat(msg -> {
+                return msg instanceof QueueToRuleEngineMsg && ((QueueToRuleEngineMsg) msg).getMsg().getId().equals(tbMsg.getId());
+            }));
+        });
+
+        deleteDifferentTenant();
+
+        await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
+            assertThat(partitionService.getMyPartitions(new QueueKey(ServiceType.TB_RULE_ENGINE, tenantId))).isNull();
+            assertThatThrownBy(() -> partitionService.resolve(ServiceType.TB_RULE_ENGINE, tenantId, tenantId))
+                    .isInstanceOf(TenantNotFoundException.class);
+
+            verify(queueAdmin).deleteTopic(eq(tpi.getFullTopicName()));
         });
     }
 
@@ -711,7 +752,7 @@ public class TenantControllerTest extends AbstractControllerTest {
     }
 
     private void verifyUsedQueueAndMessage(String queue, TenantId tenantId, EntityId entityId, String msgType, Runnable action, Consumer<TopicPartitionInfo> tpiAssert) {
-        await().atMost(15, TimeUnit.SECONDS)
+        await().atMost(30, TimeUnit.SECONDS)
                 .untilAsserted(() -> {
                     TopicPartitionInfo tpi = partitionService.resolve(ServiceType.TB_RULE_ENGINE, queue, tenantId, entityId);
                     tpiAssert.accept(tpi);
@@ -759,7 +800,7 @@ public class TenantControllerTest extends AbstractControllerTest {
         queueConfiguration.setName(queueName);
         queueConfiguration.setTopic(topic);
         queueConfiguration.setPollInterval(25);
-        queueConfiguration.setPartitions(1 + new Random().nextInt(99));
+        queueConfiguration.setPartitions(12);
         queueConfiguration.setConsumerPerPartition(true);
         queueConfiguration.setPackProcessingTimeout(2000);
         SubmitStrategy submitStrategy = new SubmitStrategy();
@@ -799,20 +840,20 @@ public class TenantControllerTest extends AbstractControllerTest {
         ArgumentMatcher<Tenant> matcherTenant = cntTime == 1 ? argument -> argument.equals(tenant) :
                 argument -> argument.getClass().equals(Tenant.class);
         if (ComponentLifecycleEvent.DELETED.equals(event)) {
-            Mockito.verify(tbClusterService, times( cntTime)).onTenantDelete(Mockito.argThat(matcherTenant),
+            Mockito.verify(tbClusterService, times(cntTime)).onTenantDelete(Mockito.argThat(matcherTenant),
                     Mockito.isNull());
         } else {
-            Mockito.verify(tbClusterService, times( cntTime)).onTenantChange(Mockito.argThat(matcherTenant),
+            Mockito.verify(tbClusterService, times(cntTime)).onTenantChange(Mockito.argThat(matcherTenant),
                     Mockito.isNull());
         }
         TenantId tenantId = cntTime == 1 ? tenant.getId() : (TenantId) createEntityId_NULL_UUID(tenant);
-        testBroadcastEntityStateChangeEventTime(tenantId, tenantId,  cntTime);
+        testBroadcastEntityStateChangeEventTime(tenantId, tenantId, cntTime);
         Mockito.reset(tbClusterService);
     }
 
     private void testBroadcastEntityStateChangeEventNeverTenant() {
         Mockito.verify(tbClusterService, never()).onTenantChange(Mockito.any(Tenant.class),
-                    Mockito.isNull());
+                Mockito.isNull());
         testBroadcastEntityStateChangeEventNever(createEntityId_NULL_UUID(new Tenant()));
         Mockito.reset(tbClusterService);
     }

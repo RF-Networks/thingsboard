@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2023 The Thingsboard Authors
+ * Copyright © 2016-2024 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,23 @@
  */
 package org.thingsboard.server.dao;
 
-import org.hibernate.dialect.function.SQLFunctionTemplate;
-import org.hibernate.type.BooleanType;
+import org.hibernate.boot.model.FunctionContributions;
+import org.hibernate.dialect.PostgreSQLDialect;
+import org.hibernate.query.sqm.function.SqmFunctionRegistry;
+import org.hibernate.type.BasicTypeRegistry;
+import org.hibernate.type.StandardBasicTypes;
 
-public class ThingsboardPostgreSQLDialect extends org.hibernate.dialect.PostgreSQL10Dialect {
-    public ThingsboardPostgreSQLDialect() {
-        super();
-        registerFunction("ilike", new SQLFunctionTemplate(BooleanType.INSTANCE, "(?1 ILIKE ?2)"));
+public class ThingsboardPostgreSQLDialect extends PostgreSQLDialect {
+
+    @Override
+    public void initializeFunctionRegistry(FunctionContributions functionContributions) {
+        super.initializeFunctionRegistry(functionContributions);
+        BasicTypeRegistry basicTypeRegistry = functionContributions.getTypeConfiguration().getBasicTypeRegistry();
+        SqmFunctionRegistry functionRegistry = functionContributions.getFunctionRegistry();
+
+        functionRegistry.registerPattern(
+                "ilike",
+                "(?1 ILIKE ?2)",
+                basicTypeRegistry.resolve(StandardBasicTypes.BOOLEAN));
     }
 }

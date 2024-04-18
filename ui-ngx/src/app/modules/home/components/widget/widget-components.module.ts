@@ -1,5 +1,5 @@
 ///
-/// Copyright © 2016-2023 The Thingsboard Authors
+/// Copyright © 2016-2024 The Thingsboard Authors
 ///
 /// Licensed under the Apache License, Version 2.0 (the "License");
 /// you may not use this file except in compliance with the License.
@@ -47,6 +47,12 @@ import { GatewayConnectorComponent } from '@home/components/widget/lib/gateway/g
 import { GatewayLogsComponent } from '@home/components/widget/lib/gateway/gateway-logs.component';
 import { GatewayStatisticsComponent } from '@home/components/widget/lib/gateway/gateway-statistics.component';
 import { GatewayServiceRPCComponent } from '@home/components/widget/lib/gateway/gateway-service-rpc.component';
+import {
+  GatewayServiceRPCConnectorComponent
+} from '@home/components/widget/lib/gateway/gateway-service-rpc-connector.component';
+import {
+  GatewayServiceRPCConnectorTemplatesComponent
+} from '@home/components/widget/lib/gateway/gateway-service-rpc-connector-templates.component';
 import { DeviceGatewayCommandComponent } from '@home/components/widget/lib/gateway/device-gateway-command.component';
 import { GatewayConfigurationComponent } from '@home/components/widget/lib/gateway/gateway-configuration.component';
 import {
@@ -67,6 +73,19 @@ import { ProgressBarWidgetComponent } from '@home/components/widget/lib/cards/pr
 import { LiquidLevelWidgetComponent } from '@home/components/widget/lib/indicator/liquid-level-widget.component';
 import { DoughnutWidgetComponent } from '@home/components/widget/lib/chart/doughnut-widget.component';
 import { RangeChartWidgetComponent } from '@home/components/widget/lib/chart/range-chart-widget.component';
+import {
+  BarChartWithLabelsWidgetComponent
+} from '@home/components/widget/lib/chart/bar-chart-with-labels-widget.component';
+import {
+  GatewayServiceRPCConnectorTemplateDialogComponent
+} from '@home/components/widget/lib/gateway/gateway-service-rpc-connector-template-dialog';
+import { SingleSwitchWidgetComponent } from '@home/components/widget/lib/rpc/single-switch-widget.component';
+import { ActionButtonWidgetComponent } from '@home/components/widget/lib/button/action-button-widget.component';
+import { CommandButtonWidgetComponent } from '@home/components/widget/lib/button/command-button-widget.component';
+import { PowerButtonWidgetComponent } from '@home/components/widget/lib/rpc/power-button-widget.component';
+import { SliderWidgetComponent } from '@home/components/widget/lib/rpc/slider-widget.component';
+import { ToggleButtonWidgetComponent } from '@home/components/widget/lib/button/toggle-button-widget.component';
+import { TimeSeriesChartWidgetComponent } from '@home/components/widget/lib/chart/time-series-chart-widget.component';
 
 @NgModule({
   declarations:
@@ -95,9 +114,12 @@ import { RangeChartWidgetComponent } from '@home/components/widget/lib/chart/ran
       GatewayLogsComponent,
       GatewayStatisticsComponent,
       GatewayServiceRPCComponent,
+      GatewayServiceRPCConnectorComponent,
+      GatewayServiceRPCConnectorTemplatesComponent,
       DeviceGatewayCommandComponent,
       GatewayConfigurationComponent,
       GatewayRemoteConfigurationDialogComponent,
+      GatewayServiceRPCConnectorTemplateDialogComponent,
       ValueCardWidgetComponent,
       AggregatedValueCardWidgetComponent,
       CountWidgetComponent,
@@ -108,7 +130,15 @@ import { RangeChartWidgetComponent } from '@home/components/widget/lib/chart/ran
       ProgressBarWidgetComponent,
       LiquidLevelWidgetComponent,
       DoughnutWidgetComponent,
-      RangeChartWidgetComponent
+      RangeChartWidgetComponent,
+      BarChartWithLabelsWidgetComponent,
+      SingleSwitchWidgetComponent,
+      ActionButtonWidgetComponent,
+      CommandButtonWidgetComponent,
+      PowerButtonWidgetComponent,
+      SliderWidgetComponent,
+      ToggleButtonWidgetComponent,
+      TimeSeriesChartWidgetComponent
     ],
   imports: [
     CommonModule,
@@ -139,11 +169,14 @@ import { RangeChartWidgetComponent } from '@home/components/widget/lib/chart/ran
         FlotWidgetComponent,
         GatewayConnectorComponent,
         GatewayLogsComponent,
+        GatewayServiceRPCConnectorComponent,
+        GatewayServiceRPCConnectorTemplatesComponent,
         GatewayStatisticsComponent,
         GatewayServiceRPCComponent,
         DeviceGatewayCommandComponent,
         GatewayConfigurationComponent,
         GatewayRemoteConfigurationDialogComponent,
+        GatewayServiceRPCConnectorTemplateDialogComponent,
         ValueCardWidgetComponent,
         AggregatedValueCardWidgetComponent,
         CountWidgetComponent,
@@ -154,7 +187,15 @@ import { RangeChartWidgetComponent } from '@home/components/widget/lib/chart/ran
         ProgressBarWidgetComponent,
         LiquidLevelWidgetComponent,
         DoughnutWidgetComponent,
-        RangeChartWidgetComponent
+        RangeChartWidgetComponent,
+        BarChartWithLabelsWidgetComponent,
+        SingleSwitchWidgetComponent,
+        ActionButtonWidgetComponent,
+        CommandButtonWidgetComponent,
+        PowerButtonWidgetComponent,
+        SliderWidgetComponent,
+        ToggleButtonWidgetComponent,
+        TimeSeriesChartWidgetComponent
     ],
   providers: [
     {provide: WIDGET_COMPONENTS_MODULE_TOKEN, useValue: WidgetComponentsModule }

@@ -1,5 +1,5 @@
 ///
-/// Copyright © 2016-2023 The Thingsboard Authors
+/// Copyright © 2016-2024 The Thingsboard Authors
 ///
 /// Licensed under the Apache License, Version 2.0 (the "License");
 /// you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ export const ATTRIBUTE = 'attribute';
 export const TELEMETRY = 'telemetry';
 export const KEY_NAME = 'keyName';
 export const DEFAULT_ID_SERVER = 123;
-export const DEFAULT_ID_BOOTSTRAP = 111;
+export const DEFAULT_ID_BOOTSTRAP = 0;
 export const DEFAULT_LOCAL_HOST_NAME = 'localhost';
 export const DEFAULT_PORT_SERVER_NO_SEC = 5685;
 export const DEFAULT_PORT_BOOTSTRAP_NO_SEC = 5687;

@@ -1,5 +1,5 @@
 /**
- * Copyright © 2016-2023 The Thingsboard Authors
+ * Copyright © 2016-2024 The Thingsboard Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.thingsboard.server.service.mail;
 import com.fasterxml.jackson.databind.JsonNode;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
+import jakarta.xml.bind.DatatypeConverter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,8 +48,8 @@ import org.thingsboard.server.dao.exception.IncorrectParameterException;
 import org.thingsboard.server.dao.settings.AdminSettingsService;
 import org.thingsboard.server.service.apiusage.TbApiUsageStateService;
 
-import javax.annotation.PostConstruct;
-import javax.mail.internet.MimeMessage;
+import jakarta.annotation.PostConstruct;
+import jakarta.mail.internet.MimeMessage;
 import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 import java.util.Locale;
@@ -181,7 +182,7 @@ public class DefaultMailService implements MailService {
         passwordResetExecutorService.execute(() -> {
             try {
                 this.sendResetPasswordEmail(passwordResetLink, email);
-            } catch (ThingsboardException e) {
+            } catch (Exception e) {
                 log.error("Error occurred: {} ", e.getMessage());
             }
         });

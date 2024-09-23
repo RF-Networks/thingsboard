@@ -94,7 +94,6 @@ public class DefaultTbDeviceService extends AbstractTbEntityService implements T
         TenantId tenantId = device.getTenantId();
         DeviceId deviceId = device.getId();
         try {
-            removeAlarmsByOriginatorId(tenantId, deviceId);
             deviceService.deleteDevice(tenantId, deviceId);
             logEntityActionService.logEntityAction(tenantId, deviceId, device, device.getCustomerId(), actionType,
                     user, deviceId.toString());
@@ -184,7 +183,7 @@ public class DefaultTbDeviceService extends AbstractTbEntityService implements T
         try {
             DeviceCredentials result = checkNotNull(deviceCredentialsService.updateDeviceCredentials(tenantId, deviceCredentials));
             logEntityActionService.logEntityAction(tenantId, deviceId, device, device.getCustomerId(),
-                    actionType, user, deviceCredentials);
+                    actionType, user, result);
             return result;
         } catch (Exception e) {
             logEntityActionService.logEntityAction(tenantId, emptyId(EntityType.DEVICE),

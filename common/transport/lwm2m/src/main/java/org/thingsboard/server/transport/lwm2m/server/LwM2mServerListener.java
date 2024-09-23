@@ -29,6 +29,7 @@ import org.eclipse.leshan.server.registration.Registration;
 import org.eclipse.leshan.server.registration.RegistrationListener;
 import org.eclipse.leshan.server.registration.RegistrationUpdate;
 import org.eclipse.leshan.server.send.SendListener;
+import org.thingsboard.server.transport.lwm2m.server.client.LwM2mClient;
 import org.thingsboard.server.transport.lwm2m.server.uplink.LwM2mUplinkMsgHandler;
 
 import java.util.Collection;
@@ -101,7 +102,10 @@ public class LwM2mServerListener {
         @Override
         public void onResponse(SingleObservation observation, Registration registration, ObserveResponse response) {
             if (registration != null) {
-                service.onUpdateValueAfterReadResponse(registration, convertObjectIdToVersionedId(observation.getPath().toString(), registration), response);
+                LwM2mClient lwM2MClient = service.getClientContext().getClientByEndpoint(registration.getEndpoint());
+                if (lwM2MClient != null) {
+                    service.onUpdateValueAfterReadResponse(registration, convertObjectIdToVersionedId(observation.getPath().toString(), lwM2MClient), response);
+                }
             }
         }
 
@@ -133,8 +137,9 @@ public class LwM2mServerListener {
 
         @Override
         public void dataReceived(Registration registration, TimestampedLwM2mNodes data, SendRequest request) {
+            log.trace("Received Send request from [{}] containing value: [{}], coapRequest: [{}]", registration.getEndpoint(), data.toString(), request.getCoapRequest().toString());
             if (registration != null) {
-                service.onUpdateValueWithSendRequest(registration, request);
+                service.onUpdateValueWithSendRequest(registration, data);
             }
         }
 

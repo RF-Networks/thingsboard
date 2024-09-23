@@ -25,7 +25,7 @@ import lombok.EqualsAndHashCode;
 import org.thingsboard.server.common.data.Customer;
 import org.thingsboard.server.common.data.id.CustomerId;
 import org.thingsboard.server.common.data.id.TenantId;
-import org.thingsboard.server.dao.model.BaseSqlEntity;
+import org.thingsboard.server.dao.model.BaseVersionedEntity;
 import org.thingsboard.server.dao.model.ModelConstants;
 import org.thingsboard.server.dao.util.mapping.JsonConverter;
 
@@ -35,7 +35,7 @@ import java.util.UUID;
 @EqualsAndHashCode(callSuper = true)
 @Entity
 @Table(name = ModelConstants.CUSTOMER_TABLE_NAME)
-public final class CustomerEntity extends BaseSqlEntity<Customer> {
+public final class CustomerEntity extends BaseVersionedEntity<Customer> {
 
     @Column(name = ModelConstants.CUSTOMER_TENANT_ID_PROPERTY)
     private UUID tenantId;
@@ -67,6 +67,9 @@ public final class CustomerEntity extends BaseSqlEntity<Customer> {
     @Column(name = ModelConstants.EMAIL_PROPERTY)
     private String email;
 
+    @Column(name = ModelConstants.CUSTOMER_IS_PUBLIC_PROPERTY)
+    private boolean isPublic;
+
     @Convert(converter = JsonConverter.class)
     @Column(name = ModelConstants.CUSTOMER_ADDITIONAL_INFO_PROPERTY)
     private JsonNode additionalInfo;
@@ -79,10 +82,7 @@ public final class CustomerEntity extends BaseSqlEntity<Customer> {
     }
 
     public CustomerEntity(Customer customer) {
-        if (customer.getId() != null) {
-            this.setUuid(customer.getId().getId());
-        }
-        this.setCreatedTime(customer.getCreatedTime());
+        super(customer);
         this.tenantId = customer.getTenantId().getId();
         this.title = customer.getTitle();
         this.country = customer.getCountry();
@@ -94,6 +94,7 @@ public final class CustomerEntity extends BaseSqlEntity<Customer> {
         this.phone = customer.getPhone();
         this.email = customer.getEmail();
         this.additionalInfo = customer.getAdditionalInfo();
+        this.isPublic = customer.isPublic();
         if (customer.getExternalId() != null) {
             this.externalId = customer.getExternalId().getId();
         }
@@ -103,6 +104,7 @@ public final class CustomerEntity extends BaseSqlEntity<Customer> {
     public Customer toData() {
         Customer customer = new Customer(new CustomerId(this.getUuid()));
         customer.setCreatedTime(createdTime);
+        customer.setVersion(version);
         customer.setTenantId(TenantId.fromUUID(tenantId));
         customer.setTitle(title);
         customer.setCountry(country);

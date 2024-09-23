@@ -33,7 +33,7 @@ import {
   getTimewindowConfig,
   setTimewindowConfig
 } from '@home/components/widget/config/timewindow-config-panel.component';
-import { formatValue, isUndefined, mergeDeep } from '@core/utils';
+import { formatValue, isUndefined, mergeDeepIgnoreArray } from '@core/utils';
 import {
   cssSizeToStrSize,
   DateFormatProcessor,
@@ -46,13 +46,16 @@ import {
 } from '@home/components/widget/lib/chart/range-chart-widget.models';
 import {
   lineSeriesStepTypes,
-  lineSeriesStepTypeTranslations,
-  seriesLabelPositions,
-  seriesLabelPositionTranslations,
-  timeSeriesLineTypes,
-  timeSeriesLineTypeTranslations
+  lineSeriesStepTypeTranslations
 } from '@home/components/widget/lib/chart/time-series-chart.models';
-import { echartsShapes, echartsShapeTranslations } from '@home/components/widget/lib/chart/echarts-widget.models';
+import {
+  chartLabelPositions,
+  chartLabelPositionTranslations,
+  chartLineTypes,
+  chartLineTypeTranslations,
+  chartShapes,
+  chartShapeTranslations
+} from '@home/components/widget/lib/chart/chart.models';
 
 @Component({
   selector: 'tb-range-chart-basic-config',
@@ -74,17 +77,17 @@ export class RangeChartBasicConfigComponent extends BasicWidgetConfigComponent {
 
   lineSeriesStepTypeTranslations = lineSeriesStepTypeTranslations;
 
-  timeSeriesLineTypes = timeSeriesLineTypes;
+  chartLineTypes = chartLineTypes;
 
-  timeSeriesLineTypeTranslations = timeSeriesLineTypeTranslations;
+  chartLineTypeTranslations = chartLineTypeTranslations;
 
-  seriesLabelPositions = seriesLabelPositions;
+  chartLabelPositions = chartLabelPositions;
 
-  seriesLabelPositionTranslations = seriesLabelPositionTranslations;
+  chartLabelPositionTranslations = chartLabelPositionTranslations;
 
-  echartsShapes = echartsShapes;
+  chartShapes = chartShapes;
 
-  echartsShapeTranslations = echartsShapeTranslations;
+  chartShapeTranslations = chartShapeTranslations;
 
   legendPositions = legendPositions;
 
@@ -114,7 +117,7 @@ export class RangeChartBasicConfigComponent extends BasicWidgetConfigComponent {
   }
 
   protected onConfigSet(configData: WidgetConfigComponentData) {
-    const settings: RangeChartWidgetSettings = mergeDeep<RangeChartWidgetSettings>({} as RangeChartWidgetSettings,
+    const settings: RangeChartWidgetSettings = mergeDeepIgnoreArray<RangeChartWidgetSettings>({} as RangeChartWidgetSettings,
       rangeChartDefaultSettings, configData.config.settings as RangeChartWidgetSettings);
     const iconSize = resolveCssSize(configData.config.iconSize);
     this.rangeChartWidgetConfigForm = this.fb.group({

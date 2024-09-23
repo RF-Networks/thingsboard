@@ -178,6 +178,7 @@ public abstract class AbstractLwM2MIntegrationTest extends AbstractTransportInte
     private String[] resources;
     protected String deviceId;
     protected boolean isWriteAttribute = false;
+    protected boolean supportFormatOnly_SenMLJSON_SenMLCBOR = false;
 
     @Before
     public void startInit() throws Exception {
@@ -318,8 +319,8 @@ public abstract class AbstractLwM2MIntegrationTest extends AbstractTransportInte
         try (ServerSocket socket = new ServerSocket(0)) {
             int clientPort = socket.getLocalPort();
             lwM2MTestClient.init(security, securityBs, clientPort, isRpc,
-                    this.defaultLwM2mUplinkMsgHandlerTest, this.clientContextTest, isWriteAttribute
-                    , clientDtlsCidLength, queueMode);
+                    this.defaultLwM2mUplinkMsgHandlerTest, this.clientContextTest, isWriteAttribute,
+                    clientDtlsCidLength, queueMode, supportFormatOnly_SenMLJSON_SenMLCBOR);
         }
     }
 
@@ -410,27 +411,36 @@ public abstract class AbstractLwM2MIntegrationTest extends AbstractTransportInte
     }
 
     protected  void awaitObserveReadAll(int cntObserve, String deviceIdStr) throws Exception {
-        await("ObserveReadAll after start client/test: countObserve " + cntObserve)
+        await("ObserveReadAll: countObserve " + cntObserve)
                 .atMost(40, TimeUnit.SECONDS)
                 .until(() -> cntObserve == getCntObserveAll(deviceIdStr));
     }
 
     protected Integer getCntObserveAll(String deviceIdStr) throws Exception {
-        String actualResultBefore = sendObserve("ObserveReadAll", null, deviceIdStr);
-        ObjectNode rpcActualResultBefore = JacksonUtil.fromString(actualResultBefore, ObjectNode.class);
-        assertEquals(ResponseCode.CONTENT.getName(), rpcActualResultBefore.get("result").asText());
-        JsonElement element = JsonUtils.parse(rpcActualResultBefore.get("value").asText());
+        String actualResult = sendObserveOK("ObserveReadAll", null, deviceIdStr);
+        ObjectNode rpcActualResult = JacksonUtil.fromString(actualResult, ObjectNode.class);
+        assertEquals(ResponseCode.CONTENT.getName(), rpcActualResult.get("result").asText());
+        JsonElement element = JsonUtils.parse(rpcActualResult.get("value").asText());
         return element.isJsonArray() ? ((JsonArray)element).size() : null;
     }
 
-    protected void sendCancelObserveAllWithAwait(String deviceIdStr) throws Exception {
-        String actualResultCancelAll = sendObserve("ObserveCancelAll", null, deviceIdStr);
+    protected void sendObserveCancelAllWithAwait(String deviceIdStr) throws Exception {
+        String actualResultCancelAll = sendObserveOK("ObserveCancelAll", null, deviceIdStr);
         ObjectNode rpcActualResultCancelAll = JacksonUtil.fromString(actualResultCancelAll, ObjectNode.class);
         assertEquals(ResponseCode.CONTENT.getName(), rpcActualResultCancelAll.get("result").asText());
         awaitObserveReadAll(0, deviceId);
     }
 
-    protected String sendObserve(String method, String params, String deviceIdStr) throws Exception {
+    protected String sendRpcObserveOkWithResultValue(String method, String params) throws Exception {
+        String actualResultReadAll = sendRpcObserveOk(method, params);
+        ObjectNode rpcActualResult = JacksonUtil.fromString(actualResultReadAll, ObjectNode.class);
+        assertEquals(ResponseCode.CONTENT.getName(), rpcActualResult.get("result").asText());
+        return rpcActualResult.get("value").asText();
+    }
+    protected String sendRpcObserveOk(String method, String params) throws Exception {
+        return sendObserveOK(method, params, deviceId);
+    }
+    protected String sendObserveOK(String method, String params, String deviceIdStr) throws Exception {
         String sendRpcRequest;
         if (params == null) {
             sendRpcRequest = "{\"method\": \"" + method + "\"}";
@@ -439,6 +449,11 @@ public abstract class AbstractLwM2MIntegrationTest extends AbstractTransportInte
             sendRpcRequest = "{\"method\": \"" + method + "\", \"params\": {\"id\": \"" + params + "\"}}";
         }
         return doPostAsync("/api/plugins/rpc/twoway/" + deviceIdStr, sendRpcRequest, String.class, status().isOk());
+    }
+
+    protected ObjectNode sendRpcObserveWithResult(String method, String params) throws Exception {
+        String actualResultReadAll = sendRpcObserveOk(method, params);
+        return JacksonUtil.fromString(actualResultReadAll, ObjectNode.class);
     }
 
 }

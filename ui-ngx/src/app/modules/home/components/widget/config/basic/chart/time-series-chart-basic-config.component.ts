@@ -45,13 +45,13 @@ import {
   timeSeriesChartWidgetDefaultSettings,
   TimeSeriesChartWidgetSettings
 } from '@home/components/widget/lib/chart/time-series-chart-widget.models';
-import { EChartsTooltipTrigger } from '@home/components/widget/lib/chart/echarts-widget.models';
 import {
   TimeSeriesChartKeySettings,
   TimeSeriesChartType,
   TimeSeriesChartYAxes,
   TimeSeriesChartYAxisId
 } from '@home/components/widget/lib/chart/time-series-chart.models';
+import { TimeSeriesChartTooltipTrigger } from '@home/components/widget/lib/chart/time-series-chart-tooltip.models';
 
 @Component({
   selector: 'tb-time-series-chart-basic-config',
@@ -76,7 +76,7 @@ export class TimeSeriesChartBasicConfigComponent extends BasicWidgetConfigCompon
 
   TimeSeriesChartType = TimeSeriesChartType;
 
-  EChartsTooltipTrigger = EChartsTooltipTrigger;
+  EChartsTooltipTrigger = TimeSeriesChartTooltipTrigger;
 
   legendPositions = legendPositions;
 

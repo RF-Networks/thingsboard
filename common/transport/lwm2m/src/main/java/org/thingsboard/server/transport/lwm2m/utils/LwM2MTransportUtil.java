@@ -20,16 +20,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.californium.elements.config.Configuration;
 import org.eclipse.leshan.core.model.LwM2mModel;
 import org.eclipse.leshan.core.model.ObjectLoader;
-import org.eclipse.leshan.core.model.ObjectModel;
 import org.eclipse.leshan.core.model.ResourceModel;
 import org.eclipse.leshan.core.model.StaticModel;
 import org.eclipse.leshan.core.node.LwM2mMultipleResource;
 import org.eclipse.leshan.core.node.LwM2mPath;
 import org.eclipse.leshan.core.node.LwM2mResource;
 import org.eclipse.leshan.core.node.LwM2mSingleResource;
-import org.eclipse.leshan.core.node.codec.CodecException;
 import org.eclipse.leshan.core.util.Hex;
-import org.eclipse.leshan.server.registration.Registration;
 import org.thingsboard.common.util.JacksonUtil;
 import org.thingsboard.server.common.data.DeviceProfile;
 import org.thingsboard.server.common.data.DeviceTransportType;
@@ -49,8 +46,6 @@ import org.thingsboard.server.transport.lwm2m.server.ota.firmware.FirmwareUpdate
 import org.thingsboard.server.transport.lwm2m.server.ota.software.SoftwareUpdateResult;
 import org.thingsboard.server.transport.lwm2m.server.ota.software.SoftwareUpdateState;
 
-import java.util.Arrays;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,56 +78,6 @@ public class LwM2MTransportUtil {
     public static final String LOG_LWM2M_ERROR = "error";
     public static final String LOG_LWM2M_WARN = "warn";
     public static final int BOOTSTRAP_DEFAULT_SHORT_ID_0 = 0;
-
-    public enum LwM2MClientStrategy {
-        CLIENT_STRATEGY_1(1, "Read only resources marked as observation"),
-        CLIENT_STRATEGY_2(2, "Read all client resources");
-
-        public int code;
-        public String type;
-
-        LwM2MClientStrategy(int code, String type) {
-            this.code = code;
-            this.type = type;
-        }
-
-        public static LwM2MClientStrategy fromStrategyClientByType(String type) {
-            for (LwM2MClientStrategy to : LwM2MClientStrategy.values()) {
-                if (to.type.equals(type)) {
-                    return to;
-                }
-            }
-            throw new IllegalArgumentException(String.format("Unsupported Client Strategy type  : %s", type));
-        }
-
-        public static LwM2MClientStrategy fromStrategyClientByCode(int code) {
-            for (LwM2MClientStrategy to : LwM2MClientStrategy.values()) {
-                if (to.code == code) {
-                    return to;
-                }
-            }
-            throw new IllegalArgumentException(String.format("Unsupported Client Strategy code : %s", code));
-        }
-    }
-
-    public static boolean equalsResourceValue(Object valueOld, Object valueNew, ResourceModel.Type type, LwM2mPath
-            resourcePath) throws CodecException {
-        switch (type) {
-            case BOOLEAN:
-            case INTEGER:
-            case FLOAT:
-                return String.valueOf(valueOld).equals(String.valueOf(valueNew));
-            case TIME:
-                return ((Date) valueOld).getTime() == ((Date) valueNew).getTime();
-            case STRING:
-            case OBJLNK:
-                return valueOld.equals(valueNew);
-            case OPAQUE:
-                return Arrays.equals(Hex.decodeHex(((String) valueOld).toCharArray()), Hex.decodeHex(((String) valueNew).toCharArray()));
-            default:
-                throw new CodecException("Invalid value type for resource %s, type %s", resourcePath, type);
-        }
-    }
 
     public static LwM2mOtaConvert convertOtaUpdateValueToString(String pathIdVer, Object value, ResourceModel.Type currentType) {
         String path = fromVersionedIdToObjectId(pathIdVer);
@@ -210,44 +155,20 @@ public class LwM2MTransportUtil {
         return null;
     }
 
-    public static String validPathIdVer(String pathIdVer, Registration registration) throws
-            IllegalArgumentException {
-        if (!pathIdVer.contains(LWM2M_SEPARATOR_PATH)) {
-            throw new IllegalArgumentException(String.format("Error:"));
-        } else {
-            String[] keyArray = pathIdVer.split(LWM2M_SEPARATOR_PATH);
-            if (keyArray.length > 1 && keyArray[1].split(LWM2M_SEPARATOR_KEY).length == 2) {
-                return pathIdVer;
-            } else {
-                return convertObjectIdToVersionedId(pathIdVer, registration);
-            }
-        }
-    }
-
-    public static String convertObjectIdToVersionedId(String path, Registration registration) {
-        String ver = String.valueOf(registration.getSupportedObject().get(new LwM2mPath(path).getObjectId()));
-        return convertObjectIdToVerId(path, ver);
-    }
-    public static String convertObjectIdToVerId(String path, String ver) {
-        ver = ver != null ? ver : TbLwM2mVersion.VERSION_1_0.getVersion().toString();
-        try {
-            String[] keyArray = path.split(LWM2M_SEPARATOR_PATH);
-            if (keyArray.length > 1) {
-                keyArray[1] = keyArray[1] + LWM2M_SEPARATOR_KEY + ver;
+    public static String convertObjectIdToVersionedId(String path, LwM2mClient lwM2MClient) {
+        String[] keyArray = path.split(LWM2M_SEPARATOR_PATH);
+        if (keyArray.length > 1) {
+            try {
+                Integer objectId = Integer.valueOf((keyArray[1].split(LWM2M_SEPARATOR_KEY))[0]);
+                String ver = String.valueOf(lwM2MClient.getSupportedObjectVersion(objectId));
+                ver = ver != null ? ver : TbLwM2mVersion.VERSION_1_0.getVersion().toString();
+                keyArray[1] = String.valueOf(keyArray[1]).contains(LWM2M_SEPARATOR_KEY) ? keyArray[1] : keyArray[1] + LWM2M_SEPARATOR_KEY + ver;
                 return StringUtils.join(keyArray, LWM2M_SEPARATOR_PATH);
-            } else {
-                return path;
+            } catch (Exception e) {
+                return null;
             }
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    public static String validateObjectVerFromKey(String key) {
-        try {
-            return (key.split(LWM2M_SEPARATOR_PATH)[1].split(LWM2M_SEPARATOR_KEY)[1]);
-        } catch (Exception e) {
-            return ObjectModel.DEFAULT_VERSION;
+        } else {
+            return path;
         }
     }
 
@@ -291,20 +212,20 @@ public class LwM2MTransportUtil {
     }
 
     public static Map<Integer, Object> convertMultiResourceValuesFromRpcBody(Object value, ResourceModel.Type type, String versionedId) throws Exception {
-            String valueJsonStr = JacksonUtil.toString(value);
-            JsonElement element = JsonUtils.parse(valueJsonStr);
-            return convertMultiResourceValuesFromJson(element, type, versionedId);
+        String valueJsonStr = JacksonUtil.toString(value);
+        JsonElement element = JsonUtils.parse(valueJsonStr);
+        return convertMultiResourceValuesFromJson(element, type, versionedId);
     }
 
     public static Map<Integer, Object> convertMultiResourceValuesFromJson(JsonElement newValProto, ResourceModel.Type type, String versionedId) {
         Map<Integer, Object> newValues = new HashMap<>();
         newValProto.getAsJsonObject().entrySet().forEach((obj) -> {
-            newValues.put(Integer.valueOf(obj.getKey()), convertValueByTypeResource (obj.getValue().getAsString(), type,  versionedId));
+            newValues.put(Integer.valueOf(obj.getKey()), convertValueByTypeResource(obj.getValue().getAsString(), type, versionedId));
         });
         return newValues;
     }
 
-    public static Object convertValueByTypeResource (String value, ResourceModel.Type type,  String versionedId) {
+    public static Object convertValueByTypeResource(String value, ResourceModel.Type type, String versionedId) {
         return LwM2mValueConverterImpl.getInstance().convertValue(value,
                 STRING, type, new LwM2mPath(fromVersionedIdToObjectId(versionedId)));
     }
@@ -433,7 +354,7 @@ public class LwM2MTransportUtil {
         serverCoapConfig.setTransient(DTLS_CONNECTION_ID_LENGTH);
         serverCoapConfig.setTransient(DTLS_CONNECTION_ID_NODE_ID);
         serverCoapConfig.set(DTLS_CONNECTION_ID_LENGTH, cIdLength);
-        if ( cIdLength > 4) {
+        if (cIdLength > 4) {
             serverCoapConfig.set(DTLS_CONNECTION_ID_NODE_ID, 0);
         } else {
             serverCoapConfig.set(DTLS_CONNECTION_ID_NODE_ID, null);

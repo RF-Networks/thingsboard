@@ -27,7 +27,6 @@ import org.springframework.stereotype.Service;
 import java.util.Objects;
 import java.util.Optional;
 
-import static org.thingsboard.server.common.data.CacheConstants.ATTRIBUTES_CACHE;
 import static org.thingsboard.server.common.data.CacheConstants.RESOURCE_INFO_CACHE;
 import static org.thingsboard.server.common.data.CacheConstants.SECURITY_SETTINGS_CACHE;
 
@@ -55,7 +54,15 @@ public class DefaultCacheCleanupService implements CacheCleanupService {
                 clearCacheByName(RESOURCE_INFO_CACHE);
                 break;
             case "3.6.3":
-                log.info("Clearing cache to upgrade from version 3.6.3 to 3.7.0");
+                log.info("Clearing cache to upgrade from version 3.6.3 to 3.6.4");
+                clearAll();
+                break;
+            case "3.6.4":
+                log.info("Clearing cache to upgrade from version 3.6.4 to 3.7.0");
+                clearAll();
+                break;
+            case "3.7.0":
+                log.info("Clearing cache to upgrade from version 3.7.0 to 3.7.1");
                 clearAll();
                 break;
             default:
@@ -78,11 +85,12 @@ public class DefaultCacheCleanupService implements CacheCleanupService {
         if (redisTemplate.isPresent()) {
             log.info("Flushing all caches");
             redisTemplate.get().execute((RedisCallback<Object>) connection -> {
-                connection.flushAll();
+                connection.serverCommands().flushAll();
                 return null;
             });
             return;
         }
         cacheManager.getCacheNames().forEach(this::clearCacheByName);
     }
+
 }

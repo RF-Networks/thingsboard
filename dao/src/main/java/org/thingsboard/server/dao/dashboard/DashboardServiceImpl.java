@@ -18,7 +18,6 @@ package org.thingsboard.server.dao.dashboard;
 import com.google.common.util.concurrent.ListenableFuture;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -54,8 +53,10 @@ import org.thingsboard.server.dao.resource.ImageService;
 import org.thingsboard.server.dao.service.DataValidator;
 import org.thingsboard.server.dao.service.PaginatedRemover;
 import org.thingsboard.server.dao.service.Validator;
+import org.thingsboard.server.dao.sql.JpaExecutorService;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.thingsboard.server.dao.service.Validator.validateId;
@@ -93,6 +94,9 @@ public class DashboardServiceImpl extends AbstractEntityService implements Dashb
 
     @Autowired
     private ApplicationEventPublisher eventPublisher;
+
+    @Autowired
+    private JpaExecutorService executor;
 
     protected void publishEvictEvent(DashboardTitleEvictEvent event) {
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
@@ -171,8 +175,6 @@ public class DashboardServiceImpl extends AbstractEntityService implements Dashb
         }
     }
 
-
-
     @Override
     public Dashboard assignDashboardToCustomer(TenantId tenantId, DashboardId dashboardId, CustomerId customerId) {
         Dashboard dashboard = findDashboardById(tenantId, dashboardId);
@@ -216,12 +218,10 @@ public class DashboardServiceImpl extends AbstractEntityService implements Dashb
         }
     }
 
-    private Dashboard updateAssignedCustomer(TenantId tenantId, DashboardId dashboardId, Customer customer) {
+    private void updateAssignedCustomer(TenantId tenantId, DashboardId dashboardId, Customer customer) {
         Dashboard dashboard = findDashboardById(tenantId, dashboardId);
         if (dashboard.updateAssignedCustomer(customer)) {
-            return saveDashboard(dashboard);
-        } else {
-            return dashboard;
+            saveDashboard(dashboard);
         }
     }
 
@@ -230,20 +230,24 @@ public class DashboardServiceImpl extends AbstractEntityService implements Dashb
     public void deleteDashboard(TenantId tenantId, DashboardId dashboardId) {
         log.trace("Executing deleteDashboard [{}]", dashboardId);
         Validator.validateId(dashboardId, id -> INCORRECT_DASHBOARD_ID + id);
-        deleteEntityRelations(tenantId, dashboardId);
         try {
             dashboardDao.removeById(tenantId, dashboardId.getId());
             publishEvictEvent(new DashboardTitleEvictEvent(dashboardId));
             countService.publishCountEntityEvictEvent(tenantId, EntityType.DASHBOARD);
             eventPublisher.publishEvent(DeleteEntityEvent.builder().tenantId(tenantId).entityId(dashboardId).build());
-        } catch (Exception t) {
-            ConstraintViolationException e = extractConstraintViolationException(t).orElse(null);
-            if (e != null && e.getConstraintName() != null && e.getConstraintName().equalsIgnoreCase("fk_default_dashboard_device_profile")) {
-                throw new DataValidationException("The dashboard referenced by the device profiles cannot be deleted!");
-            } else {
-                throw t;
-            }
+        } catch (Exception e) {
+            checkConstraintViolation(e, Map.of(
+                    "fk_default_dashboard_device_profile", "The dashboard is referenced by a device profile",
+                    "fk_default_dashboard_asset_profile", "The dashboard is referenced by an asset profile"
+            ));
+            throw e;
         }
+    }
+
+    @Override
+    @Transactional
+    public void deleteEntity(TenantId tenantId, EntityId id, boolean force) {
+        deleteDashboard(tenantId, (DashboardId) id);
     }
 
     @Override
@@ -267,6 +271,11 @@ public class DashboardServiceImpl extends AbstractEntityService implements Dashb
         log.trace("Executing deleteDashboardsByTenantId, tenantId [{}]", tenantId);
         Validator.validateId(tenantId, id -> INCORRECT_TENANT_ID + id);
         tenantDashboardsRemover.removeEntities(tenantId, tenantId);
+    }
+
+    @Override
+    public void deleteByTenantId(TenantId tenantId) {
+        deleteDashboardsByTenantId(tenantId);
     }
 
     @Override
@@ -295,7 +304,7 @@ public class DashboardServiceImpl extends AbstractEntityService implements Dashb
         if (customer == null) {
             throw new DataValidationException("Can't unassign dashboards from non-existent customer!");
         }
-        new CustomerDashboardsUnassigner(customer).removeEntities(tenantId, customer);
+        new CustomerDashboardsRemover(customer).removeEntities(tenantId, customer);
     }
 
     @Override
@@ -359,7 +368,16 @@ public class DashboardServiceImpl extends AbstractEntityService implements Dashb
 
     @Override
     public DashboardInfo findFirstDashboardInfoByTenantIdAndName(TenantId tenantId, String name) {
+        log.trace("Executing findFirstDashboardInfoByTenantIdAndName [{}][{}]", tenantId, name);
+        validateId(tenantId, id -> INCORRECT_TENANT_ID + id);
         return dashboardInfoDao.findFirstByTenantIdAndName(tenantId.getId(), name);
+    }
+
+    @Override
+    public ListenableFuture<DashboardInfo> findFirstDashboardInfoByTenantIdAndNameAsync(TenantId tenantId, String name) {
+        log.trace("Executing findFirstDashboardInfoByTenantIdAndNameAsync [{}][{}]", tenantId, name);
+        validateId(tenantId, id -> INCORRECT_TENANT_ID + id);
+        return executor.submit(() -> findFirstDashboardInfoByTenantIdAndName(tenantId, name));
     }
 
     @Override
@@ -391,21 +409,15 @@ public class DashboardServiceImpl extends AbstractEntityService implements Dashb
     }
 
     @Override
-    @Transactional
-    public void deleteEntity(TenantId tenantId, EntityId id) {
-        deleteDashboard(tenantId, (DashboardId) id);
-    }
-
-    @Override
     public EntityType getEntityType() {
         return EntityType.DASHBOARD;
     }
 
-    private class CustomerDashboardsUnassigner extends PaginatedRemover<Customer, DashboardInfo> {
+    private class CustomerDashboardsRemover extends PaginatedRemover<Customer, DashboardInfo> {
 
-        private Customer customer;
+        private final Customer customer;
 
-        CustomerDashboardsUnassigner(Customer customer) {
+        CustomerDashboardsRemover(Customer customer) {
             this.customer = customer;
         }
 
@@ -423,7 +435,7 @@ public class DashboardServiceImpl extends AbstractEntityService implements Dashb
 
     private class CustomerDashboardsUpdater extends PaginatedRemover<Customer, DashboardInfo> {
 
-        private Customer customer;
+        private final Customer customer;
 
         CustomerDashboardsUpdater(Customer customer) {
             this.customer = customer;

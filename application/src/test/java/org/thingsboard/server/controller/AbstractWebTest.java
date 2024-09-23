@@ -21,11 +21,8 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Header;
-import io.jsonwebtoken.Jwt;
-import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.Jws;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.http.HttpStatus;
 import org.awaitility.Awaitility;
 import org.hamcrest.Matcher;
 import org.hibernate.exception.ConstraintViolationException;
@@ -102,6 +99,11 @@ import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.id.TenantProfileId;
 import org.thingsboard.server.common.data.id.UUIDBased;
 import org.thingsboard.server.common.data.id.UserId;
+import org.thingsboard.server.common.data.oauth2.MapperType;
+import org.thingsboard.server.common.data.oauth2.OAuth2Client;
+import org.thingsboard.server.common.data.oauth2.OAuth2CustomMapperConfig;
+import org.thingsboard.server.common.data.oauth2.OAuth2MapperConfig;
+import org.thingsboard.server.common.data.oauth2.PlatformType;
 import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.page.TimePageLink;
@@ -114,12 +116,15 @@ import org.thingsboard.server.common.data.tenant.profile.TenantProfileData;
 import org.thingsboard.server.common.msg.session.FeatureType;
 import org.thingsboard.server.config.ThingsboardSecurityConfiguration;
 import org.thingsboard.server.dao.Dao;
+import org.thingsboard.server.dao.attributes.AttributesService;
 import org.thingsboard.server.dao.device.ClaimDevicesService;
 import org.thingsboard.server.dao.tenant.TenantProfileService;
 import org.thingsboard.server.dao.timeseries.TimeseriesService;
+import org.thingsboard.server.queue.memory.InMemoryStorage;
 import org.thingsboard.server.service.entitiy.tenant.profile.TbTenantProfileService;
 import org.thingsboard.server.service.security.auth.jwt.RefreshTokenRequest;
 import org.thingsboard.server.service.security.auth.rest.LoginRequest;
+import org.thingsboard.server.service.security.model.token.JwtTokenFactory;
 
 import java.io.IOException;
 import java.lang.invoke.MethodHandles;
@@ -140,6 +145,7 @@ import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
@@ -212,6 +218,7 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
     protected UserId differentCustomerUserId;
 
     protected UserId differentTenantCustomerUserId;
+    protected UserId currentUserId;
 
     @SuppressWarnings("rawtypes")
     private HttpMessageConverter mappingJackson2HttpMessageConverter;
@@ -229,7 +236,10 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
     private TbTenantProfileService tbTenantProfileService;
 
     @Autowired
-    public TimeseriesService tsService;
+    protected TimeseriesService tsService;
+
+    @Autowired
+    protected AttributesService attributesService;
 
     @Autowired
     protected DefaultActorService actorService;
@@ -237,8 +247,14 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
     @Autowired
     protected ClaimDevicesService claimDevicesService;
 
+    @Autowired
+    private JwtTokenFactory jwtTokenFactory;
+
     @SpyBean
     protected MailService mailService;
+
+    @Autowired
+    protected InMemoryStorage storage;
 
     @Rule
     public TestRule watcher = new TestWatcher() {
@@ -282,7 +298,7 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
 
         Tenant tenant = new Tenant();
         tenant.setTitle(TEST_TENANT_NAME);
-        Tenant savedTenant = doPost("/api/tenant", tenant, Tenant.class);
+        Tenant savedTenant = saveTenant(tenant);
         Assert.assertNotNull(savedTenant);
         tenantId = savedTenant.getId();
         tenantProfileId = savedTenant.getTenantProfileId();
@@ -325,7 +341,7 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
                 currentActivateToken = activationLink.split("=")[1];
                 return null;
             }
-        }).when(mailService).sendActivationEmail(anyString(), anyString());
+        }).when(mailService).sendActivationEmail(anyString(), anyLong(), anyString());
 
         Mockito.doAnswer(new Answer<Void>() {
             public Void answer(InvocationOnMock invocation) {
@@ -334,7 +350,7 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
                 currentResetPasswordToken = passwordResetLink.split("=")[1];
                 return null;
             }
-        }).when(mailService).sendResetPasswordEmailAsync(anyString(), anyString());
+        }).when(mailService).sendResetPasswordEmailAsync(anyString(), anyLong(), anyString());
     }
 
     @After
@@ -360,22 +376,14 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
         assertThat(loadedTenants).as("All tenants expected to be deleted, but some tenants left in the database").isEmpty();
     }
 
-    private void deleteTenant(TenantId tenantId) {
-        int status = 0;
-        int retries = 0;
-        while (status != HttpStatus.SC_OK && retries < CLEANUP_TENANT_RETRIES_COUNT) {
-            retries++;
-            try {
-                status = doDelete("/api/tenant/" + tenantId.getId().toString())
-                        .andReturn().getResponse().getStatus();
-                if (status != HttpStatus.SC_OK) {
-                    log.warn("Tenant deletion failed, tenantId: {}", tenantId.getId().toString());
-                    Thread.sleep(1000L);
-                }
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+    protected void deleteTenant(TenantId tenantId) {
+        try {
+            doDelete("/api/tenant/" + tenantId.getId()).andExpect(status().isOk());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
+        Awaitility.await("all tasks processed").atMost(60, TimeUnit.SECONDS).during(300, TimeUnit.MILLISECONDS)
+                .until(() -> storage.getLag("tb_housekeeper") == 0);
     }
 
     private List<Tenant> getAllTenants() throws Exception {
@@ -428,7 +436,7 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
         loginSysAdmin();
         Tenant tenant = new Tenant();
         tenant.setTitle(TEST_DIFFERENT_TENANT_NAME);
-        savedDifferentTenant = doPost("/api/tenant", tenant, Tenant.class);
+        savedDifferentTenant = saveTenant(tenant);
         differentTenantId = savedDifferentTenant.getId();
         Assert.assertNotNull(savedDifferentTenant);
         User differentTenantAdmin = new User();
@@ -436,6 +444,10 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
         differentTenantAdmin.setTenantId(savedDifferentTenant.getId());
         differentTenantAdmin.setEmail(DIFFERENT_TENANT_ADMIN_EMAIL);
         savedDifferentTenantUser = createUserAndLogin(differentTenantAdmin, DIFFERENT_TENANT_ADMIN_PASSWORD);
+    }
+
+    protected Tenant saveTenant(Tenant tenant) throws Exception {
+        return doPost("/api/tenant", tenant, Tenant.class);
     }
 
     protected void loginDifferentCustomer() throws Exception {
@@ -520,7 +532,7 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
         JsonNode activateRequest = getActivateRequest(password);
         ResultActions resultActions = doPost("/api/noauth/activate", activateRequest);
         resultActions.andExpect(status().isOk());
-        return savedUser;
+        return doGet("/api/user/" + savedUser.getId(), User.class);
     }
 
     private JsonNode getActivateRequest(String password) throws Exception {
@@ -558,15 +570,12 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
     }
 
     protected void validateJwtToken(String token, String username) {
-        Assert.assertNotNull(token);
-        Assert.assertFalse(token.isEmpty());
-        int i = token.lastIndexOf('.');
-        Assert.assertTrue(i > 0);
-        String withoutSignature = token.substring(0, i + 1);
-        Jwt<Header, Claims> jwsClaims = Jwts.parser().parseClaimsJwt(withoutSignature);
-        Claims claims = jwsClaims.getBody();
+        Jws<Claims> jwsClaims = jwtTokenFactory.parseTokenClaims(token);
+        Claims claims = jwsClaims.getPayload();
         String subject = claims.getSubject();
         Assert.assertEquals(username, subject);
+        String userId = claims.get("userId", String.class);
+        this.currentUserId = UserId.fromString(userId);
     }
 
     protected void resetTokens() throws Exception {
@@ -631,6 +640,11 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
         deviceData.setConfiguration(new DefaultDeviceConfiguration());
         device.setDeviceData(deviceData);
         return doPost("/api/device?accessToken=" + accessToken, device, Device.class);
+    }
+
+    protected Device assignDeviceToCustomer(DeviceId deviceId, CustomerId customerId) {
+        String deviceIdStr = String.valueOf(deviceId.getId());
+        return doPost("/api/customer/" + customerId.getId() + "/device/" + deviceIdStr, Device.class);
     }
 
     protected MqttDeviceProfileTransportConfiguration createMqttDeviceProfileTransportConfiguration(TransportPayloadTypeConfiguration transportPayloadTypeConfiguration, boolean sendAckOnValidationException) {
@@ -803,7 +817,11 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
         return readResponse(doPost(urlTemplate, content, params).andExpect(resultMatcher), responseType);
     }
 
-    protected <T> T doPostAsync(String urlTemplate, T content, Class<T> responseClass, ResultMatcher resultMatcher, String... params) throws Exception {
+    protected <T, R> R doPostAsyncWithTypedResponse(String urlTemplate, T content, TypeReference<R> responseType, ResultMatcher resultMatcher, String... params) throws Exception {
+        return readResponse(doPostAsync(urlTemplate, content, DEFAULT_TIMEOUT, params).andExpect(resultMatcher), responseType);
+    }
+
+    protected <T, R> R doPostAsync(String urlTemplate, T content, Class<R> responseClass, ResultMatcher resultMatcher, String... params) throws Exception {
         return readResponse(doPostAsync(urlTemplate, content, DEFAULT_TIMEOUT, params).andExpect(resultMatcher), responseClass);
     }
 
@@ -1107,6 +1125,41 @@ public abstract class AbstractWebTest extends AbstractInMemoryStorageTest {
         TenantProfile tenantProfile = JacksonUtil.clone(oldTenantProfile);
         updater.accept(tenantProfile);
         tbTenantProfileService.save(TenantId.SYS_TENANT_ID, tenantProfile, oldTenantProfile);
+    }
+
+    protected OAuth2Client createOauth2Client(TenantId tenantId, String title) {
+        return createOauth2Client(tenantId, title, null);
+    }
+
+    protected OAuth2Client createOauth2Client(TenantId tenantId, String title, List<PlatformType> platforms) {
+        OAuth2Client oAuth2Client = new OAuth2Client();
+        oAuth2Client.setTenantId(tenantId);
+        oAuth2Client.setTitle(title);
+        oAuth2Client.setClientId(UUID.randomUUID().toString());
+        oAuth2Client.setClientSecret(UUID.randomUUID().toString());
+        oAuth2Client.setAuthorizationUri(UUID.randomUUID().toString());
+        oAuth2Client.setAccessTokenUri(UUID.randomUUID().toString());
+        oAuth2Client.setScope(Arrays.asList(UUID.randomUUID().toString(), UUID.randomUUID().toString()));
+        oAuth2Client.setPlatforms(platforms == null ? Collections.emptyList() : platforms);
+        oAuth2Client.setUserInfoUri(UUID.randomUUID().toString());
+        oAuth2Client.setUserNameAttributeName(UUID.randomUUID().toString());
+        oAuth2Client.setJwkSetUri(UUID.randomUUID().toString());
+        oAuth2Client.setClientAuthenticationMethod(UUID.randomUUID().toString());
+        oAuth2Client.setLoginButtonLabel(UUID.randomUUID().toString());
+        oAuth2Client.setLoginButtonIcon(UUID.randomUUID().toString());
+        oAuth2Client.setAdditionalInfo(JacksonUtil.newObjectNode().put(UUID.randomUUID().toString(), UUID.randomUUID().toString()));
+        oAuth2Client.setMapperConfig(
+                OAuth2MapperConfig.builder()
+                        .allowUserCreation(true)
+                        .activateUser(true)
+                        .type(MapperType.CUSTOM)
+                        .custom(
+                                OAuth2CustomMapperConfig.builder()
+                                        .url(UUID.randomUUID().toString())
+                                        .build()
+                        )
+                        .build());
+        return oAuth2Client;
     }
 
 }

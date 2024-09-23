@@ -21,11 +21,11 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 import lombok.extern.slf4j.Slf4j;
+import org.awaitility.Awaitility;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.thingsboard.server.cache.TbTransactionalCache;
 import org.thingsboard.server.common.data.AttributeScope;
 import org.thingsboard.server.common.data.id.DeviceId;
 import org.thingsboard.server.common.data.id.TenantId;
@@ -33,7 +33,6 @@ import org.thingsboard.server.common.data.kv.AttributeKvEntry;
 import org.thingsboard.server.common.data.kv.BaseAttributeKvEntry;
 import org.thingsboard.server.common.data.kv.KvEntry;
 import org.thingsboard.server.common.data.kv.StringDataEntry;
-import org.thingsboard.server.dao.attributes.AttributeCacheKey;
 import org.thingsboard.server.dao.attributes.AttributesService;
 import org.thingsboard.server.dao.service.AbstractServiceTest;
 
@@ -47,6 +46,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
  * @author Andrew Shvayka
  */
@@ -55,9 +56,6 @@ public abstract class BaseAttributesServiceTest extends AbstractServiceTest {
 
     private static final String OLD_VALUE = "OLD VALUE";
     private static final String NEW_VALUE = "NEW VALUE";
-
-    @Autowired
-    private TbTransactionalCache<AttributeCacheKey, AttributeKvEntry> cache;
 
     @Autowired
     private AttributesService attributesService;
@@ -74,7 +72,7 @@ public abstract class BaseAttributesServiceTest extends AbstractServiceTest {
         attributesService.save(SYSTEM_TENANT_ID, deviceId, AttributeScope.CLIENT_SCOPE, Collections.singletonList(attr)).get();
         Optional<AttributeKvEntry> saved = attributesService.find(SYSTEM_TENANT_ID, deviceId, AttributeScope.CLIENT_SCOPE, attr.getKey()).get();
         Assert.assertTrue(saved.isPresent());
-        Assert.assertEquals(attr, saved.get());
+        equalsIgnoreVersion(attr, saved.get());
     }
 
     @Test
@@ -87,14 +85,15 @@ public abstract class BaseAttributesServiceTest extends AbstractServiceTest {
         Optional<AttributeKvEntry> saved = attributesService.find(SYSTEM_TENANT_ID, deviceId, AttributeScope.CLIENT_SCOPE, attrOld.getKey()).get();
 
         Assert.assertTrue(saved.isPresent());
-        Assert.assertEquals(attrOld, saved.get());
+        equalsIgnoreVersion(attrOld, saved.get());
 
         KvEntry attrNewValue = new StringDataEntry("attribute1", "value2");
         AttributeKvEntry attrNew = new BaseAttributeKvEntry(attrNewValue, 73L);
         attributesService.save(SYSTEM_TENANT_ID, deviceId, AttributeScope.CLIENT_SCOPE, Collections.singletonList(attrNew)).get();
 
         saved = attributesService.find(SYSTEM_TENANT_ID, deviceId, AttributeScope.CLIENT_SCOPE, attrOld.getKey()).get();
-        Assert.assertEquals(attrNew, saved.get());
+        Assert.assertTrue(saved.isPresent());
+        equalsIgnoreVersion(attrNew, saved.get());
     }
 
     @Test
@@ -117,8 +116,8 @@ public abstract class BaseAttributesServiceTest extends AbstractServiceTest {
         Assert.assertNotNull(saved);
         Assert.assertEquals(2, saved.size());
 
-        Assert.assertEquals(attrANew, saved.get(0));
-        Assert.assertEquals(attrBNew, saved.get(1));
+        equalsIgnoreVersion(attrANew, saved.get(0));
+        equalsIgnoreVersion(attrBNew, saved.get(1));
     }
 
     @Test
@@ -127,24 +126,6 @@ public abstract class BaseAttributesServiceTest extends AbstractServiceTest {
         Assert.assertNotNull(future);
         var result = future.get(10, TimeUnit.SECONDS);
         Assert.assertTrue(result.isEmpty());
-    }
-
-    @Test
-    public void testConcurrentTransaction() throws Exception {
-        var tenantId = new TenantId(UUID.randomUUID());
-        var deviceId = new DeviceId(UUID.randomUUID());
-        var scope = AttributeScope.SERVER_SCOPE;
-        var key = "TEST";
-
-        var attrKey = new AttributeCacheKey(scope, deviceId, "TEST");
-        var oldValue = new BaseAttributeKvEntry(System.currentTimeMillis(), new StringDataEntry(key, OLD_VALUE));
-        var newValue = new BaseAttributeKvEntry(System.currentTimeMillis(), new StringDataEntry(key, NEW_VALUE));
-
-        var trx = cache.newTransactionForKey(attrKey);
-        cache.putIfAbsent(attrKey, newValue);
-        trx.putIfAbsent(attrKey, oldValue);
-        Assert.assertFalse(trx.commit());
-        Assert.assertEquals(NEW_VALUE, getAttributeValue(tenantId, deviceId, scope, key));
     }
 
     @Test
@@ -221,6 +202,45 @@ public abstract class BaseAttributesServiceTest extends AbstractServiceTest {
         Assert.assertEquals(NEW_VALUE, value.get(1));
     }
 
+    @Test
+    public void testFindAllKeysByEntityId() {
+        var tenantId = new TenantId(UUID.randomUUID());
+        var deviceId = new DeviceId(UUID.randomUUID());
+        saveAttribute(tenantId, deviceId, AttributeScope.SERVER_SCOPE, "key1", "123");
+        saveAttribute(tenantId, deviceId, AttributeScope.SERVER_SCOPE, "key2", "123");
+
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
+            List<String> keys = attributesService.findAllKeysByEntityIds(tenantId, List.of(deviceId));
+            assertThat(keys).containsOnly("key1", "key2");
+        });
+    }
+
+    @Test
+    public void testFindAllKeysByEntityIdAndAttributeType() {
+        var tenantId = new TenantId(UUID.randomUUID());
+        var deviceId = new DeviceId(UUID.randomUUID());
+        saveAttribute(tenantId, deviceId, AttributeScope.SERVER_SCOPE, "key1", "123");
+        saveAttribute(tenantId, deviceId, AttributeScope.SERVER_SCOPE, "key2", "123");
+
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
+            List<String> keys = attributesService.findAllKeysByEntityIds(tenantId, List.of(deviceId), AttributeScope.SERVER_SCOPE.name());
+            assertThat(keys).containsOnly("key1", "key2");
+        });
+    }
+
+    @Test
+    public void testFindAllByEntityIdAndAttributeType() {
+        var tenantId = new TenantId(UUID.randomUUID());
+        var deviceId = new DeviceId(UUID.randomUUID());
+        saveAttribute(tenantId, deviceId, AttributeScope.SERVER_SCOPE, "key1", "123");
+        saveAttribute(tenantId, deviceId, AttributeScope.SERVER_SCOPE, "key2", "123");
+
+        Awaitility.await().atMost(30, TimeUnit.SECONDS).untilAsserted(() -> {
+            List<AttributeKvEntry> attributes = attributesService.findAll(tenantId, deviceId, AttributeScope.SERVER_SCOPE).get();
+            assertThat(attributes).extracting(KvEntry::getKey).containsOnly("key1", "key2");
+        });
+    }
+
     private void testConcurrentFetchAndUpdate(TenantId tenantId, DeviceId deviceId, ListeningExecutorService pool) throws Exception {
         var scope = AttributeScope.SERVER_SCOPE;
         var key = "TEST";
@@ -232,6 +252,11 @@ public abstract class BaseAttributesServiceTest extends AbstractServiceTest {
         }));
         futures.add(pool.submit(() -> saveAttribute(tenantId, deviceId, scope, key, NEW_VALUE)));
         Futures.allAsList(futures).get(10, TimeUnit.SECONDS);
+
+        String attributeValue = getAttributeValue(tenantId, deviceId, scope, key);
+        if (!NEW_VALUE.equals(attributeValue)) {
+            System.out.println();
+        }
         Assert.assertEquals(NEW_VALUE, getAttributeValue(tenantId, deviceId, scope, key));
     }
 
@@ -288,5 +313,10 @@ public abstract class BaseAttributesServiceTest extends AbstractServiceTest {
         }
     }
 
+    private void equalsIgnoreVersion(AttributeKvEntry expected, AttributeKvEntry actual) {
+        Assert.assertEquals(expected.getKey(), actual.getKey());
+        Assert.assertEquals(expected.getValue(), actual.getValue());
+        Assert.assertEquals(expected.getLastUpdateTs(), actual.getLastUpdateTs());
+    }
 
 }

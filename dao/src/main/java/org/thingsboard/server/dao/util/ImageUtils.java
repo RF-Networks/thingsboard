@@ -19,6 +19,8 @@ import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.Directory;
 import com.drew.metadata.Metadata;
 import com.drew.metadata.Tag;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -39,13 +41,16 @@ import org.apache.batik.util.XMLResourceDescriptor;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.springframework.util.MimeType;
 import org.springframework.util.MimeTypeUtils;
+import org.thingsboard.common.util.JacksonUtil;
 import org.thingsboard.server.common.data.StringUtils;
 import org.w3c.dom.Document;
 
 import javax.imageio.ImageIO;
+import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.Base64;
 import java.util.Map;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -234,6 +239,17 @@ public class ImageUtils {
         return originalImage;
     }
 
+    public static ScadaSymbolMetadataInfo processScadaSymbolMetadata(String fileName, byte[] data) throws Exception {
+        SAXSVGDocumentFactory factory = new SAXSVGDocumentFactory(XMLResourceDescriptor.getXMLParserClassName());
+        Document document = factory.createDocument(null, new ByteArrayInputStream(data));
+        var metaElements = document.getElementsByTagName("tb:metadata");
+        JsonNode metaData = null;
+        if (metaElements.getLength() > 0) {
+            metaData = JacksonUtil.toJsonNode(metaElements.item(0).getTextContent());
+        }
+        return new ScadaSymbolMetadataInfo(fileName, metaData);
+    }
+
     private static int[] getThumbnailDimensions(int originalWidth, int originalHeight, int maxDimension, boolean originalIfSmaller) {
         if (originalWidth <= maxDimension && originalHeight <= maxDimension && originalIfSmaller) {
             return new int[]{originalWidth, originalHeight};
@@ -251,6 +267,94 @@ public class ImageUtils {
         return new int[]{thumbnailWidth, thumbnailHeight};
     }
 
+    public static String getEmbeddedBase64EncodedImg(String colorStr) {
+        try {
+            Color color = parseColor(colorStr); // Support for hex, rgb, hsla
+            BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+            image.setRGB(0, 0, color.getRGB());
+
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            ImageIO.write(image, "png", outputStream);
+            byte[] imageBytes = outputStream.toByteArray();
+            String base64String = Base64.getEncoder().encodeToString(imageBytes);
+
+            return "data:image/png;base64," + base64String;
+        } catch (Exception e) {
+            log.warn("Failed to generate embedded image for color: {}", colorStr, e);
+            return null;
+        }
+    }
+
+    private static Color parseColor(String colorStr) {
+        if (colorStr.startsWith("#")) {
+            return Color.decode(colorStr);
+        }
+
+        if (colorStr.startsWith("rgb")) {
+            return parseRgbColor(colorStr);
+        }
+
+        if (colorStr.startsWith("hsl")) {
+            return parseHslaColor(colorStr);
+        }
+
+        throw new IllegalArgumentException("Unsupported color format: " + colorStr);
+    }
+
+    private static Color parseRgbColor(String rgb) {
+        String[] rgbValues = rgb.replaceAll("[^0-9,]", "").split(",");
+        int r = Integer.parseInt(rgbValues[0]);
+        int g = Integer.parseInt(rgbValues[1]);
+        int b = Integer.parseInt(rgbValues[2]);
+        return new Color(r, g, b);
+    }
+
+    private static Color parseHslaColor(String hsla) {
+        String[] hslaValues = hsla.replaceAll("[^0-9.,]", "").split(",");
+        float h = Float.parseFloat(hslaValues[0]);
+        float s = Float.parseFloat(hslaValues[1]) / 100;
+        float l = Float.parseFloat(hslaValues[2]) / 100;
+        float a = hslaValues.length > 3 ? Float.parseFloat(hslaValues[3]) : 1.0f;
+        return hslaToColor(h, s, l, a);
+    }
+
+    private static Color hslaToColor(float h, float s, float l, float alpha) {
+        float c = (1 - Math.abs(2 * l - 1)) * s;
+        float x = c * (1 - Math.abs((h / 60) % 2 - 1));
+        float m = l - c / 2;
+
+        float r = 0, g = 0, b = 0;
+        if (h < 60) {
+            r = c;
+            g = x;
+        } else if (h < 120) {
+            r = x;
+            g = c;
+        } else if (h < 180) {
+            g = c;
+            b = x;
+        } else if (h < 240) {
+            g = x;
+            b = c;
+        } else if (h < 300) {
+            r = x;
+            b = c;
+        } else {
+            r = c;
+            b = x;
+        }
+
+        r += m;
+        g += m;
+        b += m;
+
+        return new Color(clamp(r), clamp(g), clamp(b), clamp(alpha));
+    }
+
+    private static float clamp(float value) {
+        return Math.max(0, Math.min(1, value));
+    }
+
     @Data
     @AllArgsConstructor
     @NoArgsConstructor
@@ -262,6 +366,47 @@ public class ImageUtils {
         private byte[] data;
         private long size;
         private ProcessedImage preview;
+    }
+
+    @Data
+    public static class ScadaSymbolMetadataInfo {
+        private String title;
+        private String description;
+        private String[] searchTags;
+        private int widgetSizeX;
+        private int widgetSizeY;
+
+        public ScadaSymbolMetadataInfo(String fileName, JsonNode metaData) {
+            if (metaData != null && metaData.has("title")) {
+                title = metaData.get("title").asText();
+            } else {
+                title = fileName;
+            }
+            if (metaData != null && metaData.has("description")) {
+                description = metaData.get("description").asText();
+            } else {
+                description = "";
+            }
+            if (metaData != null && metaData.has("searchTags") && metaData.get("searchTags").isArray()) {
+                var tagsNode = (ArrayNode) metaData.get("searchTags");
+                searchTags = new String[tagsNode.size()];
+                for (int i = 0; i < tagsNode.size(); i++) {
+                    searchTags[i] = tagsNode.get(i).asText();
+                }
+            } else {
+                searchTags = new String[0];
+            }
+            if (metaData != null && metaData.has("widgetSizeX")) {
+                widgetSizeX = metaData.get("widgetSizeX").asInt();
+            } else {
+                widgetSizeX = 3;
+            }
+            if (metaData != null && metaData.has("widgetSizeY")) {
+                widgetSizeY = metaData.get("widgetSizeY").asInt();
+            } else {
+                widgetSizeY = 3;
+            }
+        }
     }
 
 }

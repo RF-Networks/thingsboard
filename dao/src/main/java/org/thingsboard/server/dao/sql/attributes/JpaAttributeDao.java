@@ -16,24 +16,26 @@
 package org.thingsboard.server.dao.sql.attributes;
 
 import com.google.common.collect.Lists;
-import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.MoreExecutors;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.thingsboard.server.common.data.AttributeScope;
 import org.thingsboard.server.common.data.id.DeviceProfileId;
 import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.id.TenantId;
 import org.thingsboard.server.common.data.kv.AttributeKvEntry;
+import org.thingsboard.server.common.data.util.TbPair;
 import org.thingsboard.server.common.stats.StatsFactory;
 import org.thingsboard.server.dao.DaoUtil;
 import org.thingsboard.server.dao.attributes.AttributesDao;
 import org.thingsboard.server.dao.dictionary.KeyDictionaryDao;
+import org.thingsboard.server.dao.model.ModelConstants;
 import org.thingsboard.server.dao.model.sql.AttributeKvCompositeKey;
 import org.thingsboard.server.dao.model.sql.AttributeKvEntity;
 import org.thingsboard.server.dao.sql.JpaAbstractDaoListeningExecutorService;
@@ -85,7 +87,7 @@ public class JpaAttributeDao extends JpaAbstractDaoListeningExecutorService impl
     @Value("${sql.batch_sort:true}")
     private boolean batchSortEnabled;
 
-    private TbSqlBlockingQueueWrapper<AttributeKvEntity> queue;
+    private TbSqlBlockingQueueWrapper<AttributeKvEntity, Long> queue;
 
     @PostConstruct
     private void init() {
@@ -96,6 +98,7 @@ public class JpaAttributeDao extends JpaAbstractDaoListeningExecutorService impl
                 .statsPrintIntervalMs(statsPrintIntervalMs)
                 .statsNamePrefix("attributes")
                 .batchSortEnabled(batchSortEnabled)
+                .withResponse(true)
                 .build();
 
         Function<AttributeKvEntity, Integer> hashcodeFunction = entity -> entity.getId().getEntityId().hashCode();
@@ -103,7 +106,7 @@ public class JpaAttributeDao extends JpaAbstractDaoListeningExecutorService impl
         queue.init(logExecutor, v -> attributeKvInsertRepository.saveOrUpdate(v),
                 Comparator.comparing((AttributeKvEntity attributeKvEntity) -> attributeKvEntity.getId().getEntityId())
                         .thenComparing(attributeKvEntity -> attributeKvEntity.getId().getAttributeType())
-                        .thenComparing(attributeKvEntity -> attributeKvEntity.getId().getAttributeKey())
+                        .thenComparing(attributeKvEntity -> attributeKvEntity.getId().getAttributeKey()), l -> l
         );
     }
 
@@ -142,12 +145,11 @@ public class JpaAttributeDao extends JpaAbstractDaoListeningExecutorService impl
 
     @Override
     public List<AttributeKvEntry> findAll(TenantId tenantId, EntityId entityId, AttributeScope attributeScope) {
-        List<AttributeKvEntity> attributes = attributeKvRepository.findAllEntityIdAndAttributeType(
+        List<AttributeKvEntity> attributes = attributeKvRepository.findAllByEntityIdAndAttributeType(
                 entityId.getId(),
                 attributeScope.getId());
         attributes.forEach(attributeKvEntity -> attributeKvEntity.setStrKey(keyDictionaryDao.getKey(attributeKvEntity.getId().getAttributeKey())));
-        return DaoUtil.convertDataList(Lists.newArrayList(
-                attributes));
+        return DaoUtil.convertDataList(Lists.newArrayList(attributes));
     }
 
     @Override
@@ -171,12 +173,12 @@ public class JpaAttributeDao extends JpaAbstractDaoListeningExecutorService impl
     @Override
     public List<String> findAllKeysByEntityIdsAndAttributeType(TenantId tenantId, List<EntityId> entityIds, String attributeType) {
         return attributeKvRepository
-                .findAllKeysByEntityIdsAndAttributeType(entityIds.stream().map(EntityId::getId).collect(Collectors.toList()), attributeType)
+                .findAllKeysByEntityIdsAndAttributeType(entityIds.stream().map(EntityId::getId).collect(Collectors.toList()), AttributeScope.valueOf(attributeType).getId())
                 .stream().map(id -> keyDictionaryDao.getKey(id)).collect(Collectors.toList());
     }
 
     @Override
-    public ListenableFuture<String> save(TenantId tenantId, EntityId entityId, AttributeScope attributeScope, AttributeKvEntry attribute) {
+    public ListenableFuture<Long> save(TenantId tenantId, EntityId entityId, AttributeScope attributeScope, AttributeKvEntry attribute) {
         AttributeKvEntity entity = new AttributeKvEntity();
         entity.setId(new AttributeKvCompositeKey(entityId.getId(), attributeScope.getId(), keyDictionaryDao.getOrSaveKeyId(attribute.getKey())));
         entity.setLastUpdateTs(attribute.getLastUpdateTs());
@@ -185,11 +187,11 @@ public class JpaAttributeDao extends JpaAbstractDaoListeningExecutorService impl
         entity.setLongValue(attribute.getLongValue().orElse(null));
         entity.setBooleanValue(attribute.getBooleanValue().orElse(null));
         entity.setJsonValue(attribute.getJsonValue().orElse(null));
-        return addToQueue(entity, attribute.getKey());
+        return addToQueue(entity);
     }
 
-    private ListenableFuture<String> addToQueue(AttributeKvEntity entity, String key) {
-        return Futures.transform(queue.add(entity), v -> key, MoreExecutors.directExecutor());
+    private ListenableFuture<Long> addToQueue(AttributeKvEntity entity) {
+        return queue.add(entity);
     }
 
     @Override
@@ -202,6 +204,30 @@ public class JpaAttributeDao extends JpaAbstractDaoListeningExecutorService impl
             }));
         }
         return futuresList;
+    }
+
+    @Override
+    public List<ListenableFuture<TbPair<String, Long>>> removeAllWithVersions(TenantId tenantId, EntityId entityId, AttributeScope attributeScope, List<String> keys) {
+        List<ListenableFuture<TbPair<String, Long>>> futuresList = new ArrayList<>(keys.size());
+        for (String key : keys) {
+            futuresList.add(service.submit(() -> {
+                Long version = transactionTemplate.execute(status -> jdbcTemplate.query("DELETE FROM attribute_kv WHERE entity_id = ? AND attribute_type = ? " +
+                                "AND attribute_key = ? RETURNING nextval('attribute_kv_version_seq')",
+                        rs -> rs.next() ? rs.getLong(1) : null, entityId.getId(), attributeScope.getId(), keyDictionaryDao.getOrSaveKeyId(key)));
+                return TbPair.of(key, version);
+            }));
+        }
+        return futuresList;
+    }
+
+    @Transactional
+    @Override
+    public List<Pair<AttributeScope, String>> removeAllByEntityId(TenantId tenantId, EntityId entityId) {
+        return jdbcTemplate.queryForList("DELETE FROM attribute_kv WHERE entity_id = ? " +
+                        "RETURNING attribute_type, attribute_key", entityId.getId()).stream()
+                .map(row -> Pair.of(AttributeScope.valueOf((Integer) row.get(ModelConstants.ATTRIBUTE_TYPE_COLUMN)),
+                        keyDictionaryDao.getKey((Integer) row.get(ModelConstants.ATTRIBUTE_KEY_COLUMN))))
+                .collect(Collectors.toList());
     }
 
     private AttributeKvCompositeKey getAttributeKvCompositeKey(EntityId entityId, Integer attributeType, Integer attributeKey) {

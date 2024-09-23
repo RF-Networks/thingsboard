@@ -14,7 +14,7 @@
 /// limitations under the License.
 ///
 
-import { Component, EventEmitter, forwardRef, Input, OnInit, Output } from '@angular/core';
+import { Component, EventEmitter, forwardRef, Input, OnDestroy, OnInit, Output } from '@angular/core';
 import {
   ControlValueAccessor,
   FormArray,
@@ -33,10 +33,9 @@ import {
   BLEMethodsTranslates,
   CANByteOrders,
   ConnectorType,
-  GatewayConnectorDefaultTypesTranslates,
+  GatewayConnectorDefaultTypesTranslatesMap,
   HTTPMethods,
-  ModbusCodesTranslate,
-  ModbusCommandTypes,
+  noLeadTrailSpacesRegex,
   RPCCommand,
   RPCTemplateConfig,
   SNMPMethods,
@@ -52,8 +51,8 @@ import {
 } from '@shared/components/dialog/json-object-edit-dialog.component';
 import { jsonRequired } from '@shared/components/json-object-edit.component';
 import { deepClone } from '@core/utils';
-
-export const noLeadTrailSpacesRegex: RegExp = /^(?! )[\S\s]*(?<! )$/;
+import { takeUntil, tap } from "rxjs/operators";
+import { Subject } from "rxjs";
 
 @Component({
   selector: 'tb-gateway-service-rpc-connector',
@@ -67,7 +66,7 @@ export const noLeadTrailSpacesRegex: RegExp = /^(?! )[\S\s]*(?<! )$/;
     }
   ]
 })
-export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValueAccessor {
+export class GatewayServiceRPCConnectorComponent implements OnInit, OnDestroy, ControlValueAccessor {
 
   @Input()
   connectorType: ConnectorType;
@@ -79,10 +78,7 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
   saveTemplate: EventEmitter<RPCTemplateConfig> = new EventEmitter();
 
   commandForm: FormGroup;
-  isMQTTWithResponse: FormControl;
-  codesArray: Array<number> = [1, 2, 3, 4, 5, 6, 15, 16];
   ConnectorType = ConnectorType;
-  modbusCommandTypes = Object.values(ModbusCommandTypes) as ModbusCommandTypes[];
   bACnetRequestTypes = Object.values(BACnetRequestTypes) as BACnetRequestTypes[];
   bACnetObjectTypes = Object.values(BACnetObjectTypes) as BACnetObjectTypes[];
   bLEMethods = Object.values(BLEMethods) as BLEMethods[];
@@ -97,8 +93,7 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
   bLEMethodsTranslates = BLEMethodsTranslates;
   SocketMethodProcessingsTranslates = SocketMethodProcessingsTranslates;
   SNMPMethodsTranslations = SNMPMethodsTranslations;
-  gatewayConnectorDefaultTypesTranslates = GatewayConnectorDefaultTypesTranslates;
-  modbusCodesTranslate = ModbusCodesTranslate;
+  gatewayConnectorDefaultTypesTranslates = GatewayConnectorDefaultTypesTranslatesMap;
 
   urlPattern = /^[-a-zA-Zd_$:{}?~+=\/.0-9-]*$/;
   numbersOnlyPattern = /^[0-9]*$/;
@@ -106,6 +101,7 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
 
   private propagateChange = (v: any) => {
   }
+  private destroy$ = new Subject<void>();
 
   constructor(private fb: FormBuilder,
               private dialog: MatDialog,) {
@@ -115,17 +111,12 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
     this.commandForm = this.connectorParamsFormGroupByType(this.connectorType);
     this.commandForm.valueChanges.subscribe(value => {
       const httpHeaders = {};
-      const security = {};
       switch (this.connectorType) {
         case ConnectorType.REST:
           value.httpHeaders.forEach(data => {
             httpHeaders[data.headerName] = data.value;
           })
           value.httpHeaders = httpHeaders;
-          value.security.forEach(data => {
-            security[data.securityName] = data.value;
-          })
-          value.security = security;
           break;
         case ConnectorType.REQUEST:
           value.httpHeaders.forEach(data => {
@@ -138,7 +129,12 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
         this.propagateChange({...this.commandForm.value, ...value});
       }
     });
-    this.isMQTTWithResponse = this.fb.control(false);
+    this.observeMQTTWithResponse();
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   connectorParamsFormGroupByType(type: ConnectorType): FormGroup {
@@ -149,30 +145,11 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
         formGroup = this.fb.group({
           methodFilter: [null, [Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]],
           requestTopicExpression: [null, [Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]],
-          responseTopicExpression: [null, [Validators.pattern(noLeadTrailSpacesRegex)]],
-          responseTimeout: [null, [Validators.min(10), Validators.pattern(this.numbersOnlyPattern)]],
+          responseTopicExpression: [{ value: null, disabled: true }, [Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]],
+          responseTimeout: [{ value: null, disabled: true }, [Validators.min(10), Validators.pattern(this.numbersOnlyPattern)]],
           valueExpression: [null, [Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]],
-        })
-        break;
-      case ConnectorType.MODBUS:
-        formGroup = this.fb.group({
-          tag: [null, [Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]],
-          type: [null, [Validators.required]],
-          functionCode: [null, [Validators.required]],
-          value: [null, []],
-          address: [null, [Validators.required, Validators.min(0), Validators.pattern(this.numbersOnlyPattern)]],
-          objectsCount: [null, [Validators.required, Validators.min(0), Validators.pattern(this.numbersOnlyPattern)]]
-        })
-        const valueForm = formGroup.get('value');
-        formGroup.get('functionCode').valueChanges.subscribe(value => {
-          if (value > 4) {
-            valueForm.addValidators([Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]);
-          } else {
-            valueForm.clearValidators();
-            valueForm.setValue(null);
-          }
-          valueForm.updateValueAndValidity();
-        })
+          withResponse: [false, []],
+        });
         break;
       case ConnectorType.BACNET:
         formGroup = this.fb.group({
@@ -253,7 +230,7 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
           tries: [null, [Validators.required, Validators.min(1), Validators.pattern(this.numbersOnlyPattern)]],
           valueExpression: [null, [Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]],
           httpHeaders: this.fb.array([]),
-          security: this.fb.array([])
+          security: [{}, [Validators.required]]
         })
         break;
       case ConnectorType.REQUEST:
@@ -270,7 +247,6 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
         })
         break;
       case ConnectorType.OPCUA:
-      case ConnectorType.OPCUA_ASYNCIO:
         formGroup = this.fb.group({
           method: [null, [Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]],
           arguments: this.fb.array([]),
@@ -310,22 +286,6 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
 
   removeHTTPHeader(index: number) {
     const oidsFA = this.commandForm.get('httpHeaders') as FormArray;
-    oidsFA.removeAt(index);
-  }
-
-  addHTTPSecurity(value: { securityName: string, value: string } = {securityName: null, value: null}) {
-    const securityFA = this.commandForm.get('security') as FormArray;
-    const formGroup = this.fb.group({
-      securityName: [value.securityName, [Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]],
-      value: [value.value, [Validators.required, Validators.pattern(noLeadTrailSpacesRegex)]]
-    })
-    if (securityFA) {
-      securityFA.push(formGroup, {emitEvent: false});
-    }
-  }
-
-  removeHTTPSecurity(index: number) {
-    const oidsFA = this.commandForm.get('security') as FormArray;
     oidsFA.removeAt(index);
   }
 
@@ -388,11 +348,11 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
       value = deepClone(value);
       switch (this.connectorType) {
         case ConnectorType.SNMP:
-          this.clearFromArrayByName("oids");
-          value.oids.forEach(value => {
+          this.clearFromArrayByName("oid");
+          value.oid.forEach(value => {
             this.addSNMPoid(value)
           })
-          delete value.oids;
+          delete value.oid;
           break;
         case ConnectorType.REQUEST:
           this.clearFromArrayByName("httpHeaders");
@@ -403,18 +363,12 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
           break;
         case ConnectorType.REST:
           this.clearFromArrayByName("httpHeaders");
-          this.clearFromArrayByName("security");
-          value.security && Object.entries(value.security).forEach(securityHeader => {
-            this.addHTTPSecurity({securityName: securityHeader[0], value: securityHeader[1] as string})
-          })
-          delete value.security;
           value.httpHeaders && Object.entries(value.httpHeaders).forEach(httpHeader => {
             this.addHTTPHeader({headerName: httpHeader[0], value: httpHeader[1] as string})
           })
           delete value.httpHeaders;
           break;
         case ConnectorType.OPCUA:
-        case ConnectorType.OPCUA_ASYNCIO:
           this.clearFromArrayByName("arguments");
           value.arguments.forEach(value => {
             this.addOCPUAArguments(value)
@@ -423,6 +377,25 @@ export class GatewayServiceRPCConnectorComponent implements OnInit, ControlValue
           break;
       }
       this.commandForm.patchValue(value, {onlySelf: false});
+    }
+  }
+
+  private observeMQTTWithResponse(): void {
+    if (this.connectorType === ConnectorType.MQTT) {
+      this.commandForm.get('withResponse').valueChanges.pipe(
+        tap((isActive: boolean) => {
+          const responseTopicControl = this.commandForm.get('responseTopicExpression');
+          const responseTimeoutControl = this.commandForm.get('responseTimeout');
+          if (isActive) {
+            responseTopicControl.enable();
+            responseTimeoutControl.enable();
+          } else {
+            responseTopicControl.disable();
+            responseTimeoutControl.disable();
+          }
+        }),
+        takeUntil(this.destroy$),
+      ).subscribe();
     }
   }
 }

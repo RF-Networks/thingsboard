@@ -67,6 +67,7 @@ import { ColorPickerModule } from '@iplab/ngx-color-picker';
 import { NgxHmCarouselModule } from 'ngx-hm-carousel';
 import { EditorModule, TINYMCE_SCRIPT_SRC } from '@tinymce/tinymce-angular';
 import { UserMenuComponent } from '@shared/components/user-menu.component';
+import { TruncateWithTooltipDirective } from '@shared/directives/truncate-with-tooltip.directive';
 import { NospacePipe } from '@shared/pipe/nospace.pipe';
 import { TranslateModule } from '@ngx-translate/core';
 import { TbCheckboxComponent } from '@shared/components/tb-checkbox.component';
@@ -178,15 +179,15 @@ import { TemplateAutocompleteComponent } from '@shared/components/notification/t
 import { SlackConversationAutocompleteComponent } from '@shared/components/slack-conversation-autocomplete.component';
 import { DateAgoPipe } from '@shared/pipe/date-ago.pipe';
 import {
-  TbBreakPointsProvider,
-  MdLgLayoutDirective,
+  GtMdLgLayoutAlignDirective,
+  GtMdLgLayoutDirective,
+  GtMdLgLayoutGapDirective,
+  GtMdLgShowHideDirective,
   MdLgLayoutAlignDirective,
+  MdLgLayoutDirective,
   MdLgLayoutGapDirective,
   MdLgShowHideDirective,
-  GtMdLgLayoutDirective,
-  GtMdLgLayoutAlignDirective,
-  GtMdLgLayoutGapDirective,
-  GtMdLgShowHideDirective
+  TbBreakPointsProvider
 } from '@shared/layout/layout.directives';
 import { ColorPickerComponent } from '@shared/components/color-picker/color-picker.component';
 import { ResourceAutocompleteComponent } from '@shared/components/resource/resource-autocomplete.component';
@@ -218,6 +219,16 @@ import { EmbedImageDialogComponent } from '@shared/components/image/embed-image-
 import { ImageGalleryDialogComponent } from '@shared/components/image/image-gallery-dialog.component';
 import { RuleChainSelectPanelComponent } from '@shared/components/rule-chain/rule-chain-select-panel.component';
 import { WidgetButtonComponent } from '@shared/components/button/widget-button.component';
+import { HexInputComponent } from '@shared/components/color-picker/hex-input.component';
+import { TimezoneComponent } from '@shared/components/time/timezone.component';
+import { TimezonePanelComponent } from '@shared/components/time/timezone-panel.component';
+import { TimewindowConfigDialogComponent } from '@shared/components/time/timewindow-config-dialog.component';
+import { CustomTranslatePipe } from '@shared/pipe/custom-translate.pipe';
+import { ScadaSymbolInputComponent } from '@shared/components/image/scada-symbol-input.component';
+import { CountryAutocompleteComponent } from '@shared/components/country-autocomplete.component';
+import { CountryData } from '@shared/models/country.models';
+import { SvgXmlComponent } from '@shared/components/svg-xml.component';
+import { DatapointsLimitComponent } from '@shared/components/time/datapoints-limit.component';
 
 export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService) {
   return markedOptionsService;
@@ -236,6 +247,7 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     SafePipe,
     ShortNumberPipe,
     ImagePipe,
+    CustomTranslatePipe,
     {
       provide: FlowInjectionToken,
       useValue: Flow
@@ -273,7 +285,8 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
         disableTooltipInteractivity: true
       }
     },
-    TbBreakPointsProvider
+    TbBreakPointsProvider,
+    CountryData
   ],
   declarations: [
     FooterComponent,
@@ -300,8 +313,12 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     UserMenuComponent,
     TimewindowComponent,
     TimewindowPanelComponent,
+    TimewindowConfigDialogComponent,
     TimeintervalComponent,
+    TimezoneComponent,
+    TimezonePanelComponent,
     QuickTimeIntervalComponent,
+    DatapointsLimitComponent,
     DashboardSelectComponent,
     DashboardSelectPanelComponent,
     DatetimePeriodComponent,
@@ -330,6 +347,7 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     JsFuncComponent,
     CssComponent,
     HtmlComponent,
+    SvgXmlComponent,
     FabTriggerDirective,
     FabActionsDirective,
     FabToolbarComponent,
@@ -352,6 +370,7 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     NavTreeComponent,
     LedLightComponent,
     MarkdownEditorComponent,
+    TruncateWithTooltipDirective,
     NospacePipe,
     MillisecondsToTimeStringPipe,
     EnumToArrayPipe,
@@ -361,6 +380,7 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     FileSizePipe,
     DateAgoPipe,
     ImagePipe,
+    CustomTranslatePipe,
     SafePipe,
     ShortNumberPipe,
     SelectableColumnsPipe,
@@ -376,6 +396,7 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     TogglePasswordComponent,
     ProtobufContentComponent,
     BranchAutocompleteComponent,
+    CountryAutocompleteComponent,
     PhoneInputComponent,
     TbScriptLangComponent,
     NotificationComponent,
@@ -416,7 +437,9 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     MultipleGalleryImageInputComponent,
     EmbedImageDialogComponent,
     ImageGalleryDialogComponent,
-    WidgetButtonComponent
+    WidgetButtonComponent,
+    HexInputComponent,
+    ScadaSymbolInputComponent
   ],
   imports: [
     CommonModule,
@@ -503,8 +526,12 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     UserMenuComponent,
     TimewindowComponent,
     TimewindowPanelComponent,
+    TimewindowConfigDialogComponent,
     TimeintervalComponent,
+    TimezoneComponent,
+    TimezonePanelComponent,
     QuickTimeIntervalComponent,
+    DatapointsLimitComponent,
     DashboardSelectComponent,
     DatetimePeriodComponent,
     DatetimeComponent,
@@ -531,6 +558,7 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     JsFuncComponent,
     CssComponent,
     HtmlComponent,
+    SvgXmlComponent,
     FabTriggerDirective,
     FabActionsDirective,
     TbJsonToStringDirective,
@@ -604,6 +632,7 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     NavTreeComponent,
     LedLightComponent,
     MarkdownEditorComponent,
+    TruncateWithTooltipDirective,
     NospacePipe,
     MillisecondsToTimeStringPipe,
     EnumToArrayPipe,
@@ -614,6 +643,7 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     FileSizePipe,
     DateAgoPipe,
     ImagePipe,
+    CustomTranslatePipe,
     SafePipe,
     ShortNumberPipe,
     SelectableColumnsPipe,
@@ -629,6 +659,7 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     TogglePasswordComponent,
     ProtobufContentComponent,
     BranchAutocompleteComponent,
+    CountryAutocompleteComponent,
     PhoneInputComponent,
     TbScriptLangComponent,
     NotificationComponent,
@@ -669,7 +700,8 @@ export function MarkedOptionsFactory(markedOptionsService: MarkedOptionsService)
     MultipleGalleryImageInputComponent,
     EmbedImageDialogComponent,
     ImageGalleryDialogComponent,
-    WidgetButtonComponent
+    WidgetButtonComponent,
+    ScadaSymbolInputComponent
   ]
 })
 export class SharedModule { }

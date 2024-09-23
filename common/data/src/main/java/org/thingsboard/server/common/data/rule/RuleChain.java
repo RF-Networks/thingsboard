@@ -23,8 +23,10 @@ import lombok.EqualsAndHashCode;
 import lombok.extern.slf4j.Slf4j;
 import org.thingsboard.server.common.data.BaseDataWithAdditionalInfo;
 import org.thingsboard.server.common.data.ExportableEntity;
+import org.thingsboard.server.common.data.HasDefaultOption;
 import org.thingsboard.server.common.data.HasName;
 import org.thingsboard.server.common.data.HasTenantId;
+import org.thingsboard.server.common.data.HasVersion;
 import org.thingsboard.server.common.data.id.RuleChainId;
 import org.thingsboard.server.common.data.id.RuleNodeId;
 import org.thingsboard.server.common.data.id.TenantId;
@@ -35,7 +37,7 @@ import org.thingsboard.server.common.data.validation.NoXss;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @Slf4j
-public class RuleChain extends BaseDataWithAdditionalInfo<RuleChainId> implements HasName, HasTenantId, ExportableEntity<RuleChainId> {
+public class RuleChain extends BaseDataWithAdditionalInfo<RuleChainId> implements HasName, HasTenantId, ExportableEntity<RuleChainId>, HasDefaultOption, HasVersion {
 
     private static final long serialVersionUID = -5656679015121935465L;
 
@@ -57,6 +59,7 @@ public class RuleChain extends BaseDataWithAdditionalInfo<RuleChainId> implement
     private transient JsonNode configuration;
 
     private RuleChainId externalId;
+    private Long version;
 
     @JsonIgnore
     private byte[] configurationBytes;
@@ -78,6 +81,7 @@ public class RuleChain extends BaseDataWithAdditionalInfo<RuleChainId> implement
         this.root = ruleChain.isRoot();
         this.setConfiguration(ruleChain.getConfiguration());
         this.setExternalId(ruleChain.getExternalId());
+        this.version = ruleChain.getVersion();
     }
 
     @Override
@@ -88,7 +92,7 @@ public class RuleChain extends BaseDataWithAdditionalInfo<RuleChainId> implement
     @Schema(description = "JSON object with the Rule Chain Id. " +
             "Specify this field to update the Rule Chain. " +
             "Referencing non-existing Rule Chain Id will cause error. " +
-            "Omit this field to create new rule chain." )
+            "Omit this field to create new rule chain.")
     @Override
     public RuleChainId getId() {
         return super.getId();
@@ -106,6 +110,12 @@ public class RuleChain extends BaseDataWithAdditionalInfo<RuleChainId> implement
 
     public void setConfiguration(JsonNode data) {
         setJson(data, json -> this.configuration = json, bytes -> this.configurationBytes = bytes);
+    }
+
+    @JsonIgnore
+    @Override
+    public boolean isDefault() {
+        return root && type == RuleChainType.CORE;
     }
 
 }
